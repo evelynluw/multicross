@@ -46,6 +46,17 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest | WorkerCance
   try {
     activeTaskId = id
     cancelled = false
+    const rng = (() => {
+      let seed = (Date.now() + workerIndex * 2654435761 + id * 1013904223) >>> 0
+      return () => {
+        seed ^= seed << 13
+        seed ^= seed >>> 17
+        seed ^= seed << 5
+        return (seed >>> 0) / 4294967296
+      }
+    })()
+    const recentSignatures: string[] = []
+    const recentSet = new Set<string>()
     const densityRange: Record<number, [number, number]> = {
       5: [0.35, 0.65],
       10: [0.3, 0.55],
@@ -54,6 +65,41 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest | WorkerCance
     }
     const range = densityRange[size] ?? [0.25, 0.5]
     const start = performance.now()
+
+    const hashGrid = (grid: number[][]) => grid.map((row) => row.join('')).join('|')
+    const trackSignature = (signature: string) => {
+      if (recentSet.has(signature)) {
+        return false
+      }
+      recentSet.add(signature)
+      recentSignatures.push(signature)
+      if (recentSignatures.length > 200) {
+        const oldest = recentSignatures.shift()
+        if (oldest) {
+          recentSet.delete(oldest)
+        }
+      }
+      return true
+    }
+
+    const jitteredRange = (attempt: number): [number, number] => {
+      const jitter = (rng() - 0.5) * 0.08
+      const min = Math.max(0.1, range[0] + jitter)
+      const max = Math.min(0.9, range[1] + jitter)
+      if (attempt % 25 === 0) {
+        return [Math.max(0.08, min - 0.05), Math.min(0.95, max + 0.05)]
+      }
+      return [min, max]
+    }
+
+    const mutateGrid = (grid: number[][]) => {
+      const flips = Math.max(1, Math.floor((size * size) * 0.01))
+      for (let i = 0; i < flips; i++) {
+        const row = Math.floor(rng() * size)
+        const col = Math.floor(rng() * size)
+        grid[row][col] = grid[row][col] ? 0 : 1
+      }
+    }
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (cancelled) {
@@ -66,7 +112,14 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest | WorkerCance
         ctx.postMessage(response)
         return
       }
-      const grid = randomGrid(size, range)
+      const grid = randomGrid(size, jitteredRange(attempt), rng)
+      if (attempt % 7 === 0) {
+        mutateGrid(grid)
+      }
+      const signature = hashGrid(grid)
+      if (!trackSignature(signature)) {
+        continue
+      }
       const candidate = buildPuzzleFromGrid(grid, `Random practice ${size}x${size}`)
       if (hasUniqueSolution(candidate.rows, candidate.cols, size)) {
         const response: WorkerResponse = { id, type: 'result', ok: true, puzzle: candidate }

@@ -111,6 +111,7 @@
 	let progressStart = 0
 	let progressTimer: ReturnType<typeof setInterval> | null = null
 	let totalAttempts = 0
+	let workerStatuses: Array<{ index: number; attempts: number; elapsed: number; message: string }> = []
 
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
@@ -142,6 +143,7 @@
 		: boardComplete && hasErrors
 			? 'Check the highlighted cells—they contain mistakes.'
 			: 'Match the edge clues without guessing.'
+	$: hasGenerationLogs = Boolean(progressMessage) || progressAttempt > 0 || workerStatuses.length > 0
 	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
 		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
 
@@ -311,6 +313,16 @@
 				progressAttempt = totalAttempts
 				progressMaxAttempts = pendingGeneration.maxAttemptsPerWorker * workerPoolSize
 				progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
+				workerStatuses = workerStatuses.map((status) =>
+					status.index === data.workerIndex
+						? {
+							...status,
+							attempts: data.attempt,
+							elapsed: data.elapsed,
+							message: `Worker ${data.workerIndex + 1}: attempt ${data.attempt}/${data.maxAttempts}`
+						}
+						: status
+				)
 				return
 			}
 			if (data.type === 'result' && data.ok && data.puzzle) {
@@ -393,6 +405,12 @@
 				progressElapsed = 0
 				progressMessage = 'Starting parallel puzzle search…'
 				activeWorkerIds = []
+				workerStatuses = workerPool.map((_worker, index) => ({
+					index,
+					attempts: 0,
+					elapsed: 0,
+					message: `Worker ${index + 1}: starting…`
+				}))
 				workerPool.forEach((worker, index) => {
 					const id = workerRequestId++
 					workerGenerationMap.set(id, generationId)
@@ -442,6 +460,7 @@
 			generatorError = error instanceof Error ? error.message : 'Unable to build puzzle.'
 		} finally {
 			generating = false
+			progressMessage = 'Finished parallel puzzle search.'
 			stopProgressTimer()
 		}
 	}
@@ -512,9 +531,11 @@
 		{#if generatorError}
 			<p class="error">{generatorError}</p>
 		{/if}
-		{#if generating}
+		{#if generating || hasGenerationLogs}
 			<div class="loading-indicator" role="status" aria-live="polite">
-				<span class="spinner" aria-hidden="true"></span>
+				{#if generating}
+					<span class="spinner" aria-hidden="true"></span>
+				{/if}
 				<span>
 					{progressMessage || 'Searching for a unique puzzle configuration…'}
 					{#if progressMaxAttempts > 0}
@@ -523,6 +544,16 @@
 				</span>
 			</div>
 			<div class="loading-timer" aria-live="polite">Elapsed: {progressElapsed.toFixed(1)}s</div>
+			{#if workerStatuses.length > 0}
+				<ul class="worker-status" aria-live="polite">
+					{#each workerStatuses as status}
+						<li>
+							<span>{status.message}</span>
+							<span class="worker-time">{status.elapsed.toFixed(1)}s</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 	</section>
 

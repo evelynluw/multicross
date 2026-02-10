@@ -155,20 +155,24 @@ export const defaultPuzzle: Puzzle = {
   ]
 }
 
-export const randomGrid = (size: number, densityRange: [number, number]): number[][] => {
+export const randomGrid = (
+  size: number,
+  densityRange: [number, number],
+  rng: () => number = Math.random
+): number[][] => {
   const [minDensity, maxDensity] = densityRange
-  const density = minDensity + Math.random() * (maxDensity - minDensity)
+  const density = minDensity + rng() * (maxDensity - minDensity)
   let filled = 0
   const grid = Array.from({ length: size }, () =>
     Array.from({ length: size }, () => {
-      const cell = Math.random() < density ? 1 : 0
+      const cell = rng() < density ? 1 : 0
       filled += cell
       return cell
     })
   )
   if (filled === 0) {
-    const row = Math.floor(Math.random() * size)
-    const col = Math.floor(Math.random() * size)
+    const row = Math.floor(rng() * size)
+    const col = Math.floor(rng() * size)
     grid[row][col] = 1
   }
   return grid
