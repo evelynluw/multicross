@@ -1,10 +1,10 @@
 <script lang="ts">
-  export let heading = 'Controls'
+  export let title = 'Controls'
   export let controls: Array<{ label: string; description: string }> = []
 </script>
 
 <section class="legend" aria-live="polite">
-  <h2>{heading}</h2>
+  <h2>{title}</h2>
   <ul>
     {#each controls as control}
       <li>
@@ -20,18 +20,18 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--legend-bg);
+    border: 1px solid var(--legend-border);
     border-radius: 1rem;
     padding: 1.25rem;
   }
 
   h2 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #9fb7ff;
+    color: var(--legend-heading);
   }
 
   ul {
@@ -55,12 +55,12 @@
     font-size: 0.85rem;
     padding: 0.2rem 0.75rem;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--legend-chip-border);
+    background: var(--legend-chip-bg);
   }
 
   .description {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--legend-text);
     font-size: 0.95rem;
   }
 
