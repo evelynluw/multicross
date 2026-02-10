@@ -77,6 +77,7 @@
 	type MoveKey = keyof typeof moveMap
 
 	let puzzle: Puzzle = defaultPuzzle
+	let lastPuzzle: Puzzle = defaultPuzzle
 	let grid = createGrid(puzzle.size)
 	let cursor = { row: 0, col: 0 }
 	let solved = false
@@ -89,9 +90,27 @@
 	let boardComplete = false
 	let hasErrors = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
-	let puzzleWorker: Worker | null = null
-	let pendingWorker: { id: number; resolve: (puzzle: Puzzle) => void; reject: (reason?: string) => void } | null = null
+	let workerPool: Worker[] = []
+	let workerPoolSize = 0
+	let workerGenerationMap = new Map<number, number>()
+	let workerById = new Map<number, Worker>()
+	let pendingGeneration: {
+		resolve: (puzzle: Puzzle) => void
+		reject: (reason?: string) => void
+		remaining: number
+		generationId: number
+		maxAttemptsPerWorker: number
+	} | null = null
+	let activeWorkerIds: number[] = []
+	let generationId = 0
 	let workerRequestId = 0
+	let progressAttempt = 0
+	let progressMaxAttempts = 0
+	let progressElapsed = 0
+	let progressMessage = ''
+	let progressStart = 0
+	let progressTimer: ReturnType<typeof setInterval> | null = null
+	let totalAttempts = 0
 
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
@@ -139,6 +158,39 @@
 			}
 			requestAnimationFrame(() => resolve())
 		})
+
+	const startProgressTimer = () => {
+		progressStart = performance.now()
+		progressElapsed = 0
+		progressTimer = setInterval(() => {
+			progressElapsed = (performance.now() - progressStart) / 1000
+		}, 100)
+	}
+
+	const stopProgressTimer = () => {
+		if (progressTimer) {
+			clearInterval(progressTimer)
+			progressTimer = null
+		}
+		progressElapsed = (performance.now() - progressStart) / 1000
+	}
+
+	const resetGenerationState = () => {
+		pendingGeneration = null
+		activeWorkerIds = []
+		workerGenerationMap.clear()
+		workerById.clear()
+	}
+
+	const cancelActiveWorkers = () => {
+		for (const id of activeWorkerIds) {
+			const worker = workerById.get(id)
+			if (worker) {
+				worker.postMessage({ id, cancel: true })
+			}
+		}
+		resetGenerationState()
+	}
 
 	const clamp = (value: number) => Math.min(Math.max(value, 0), dimension - 1)
 	const cellId = (row: number, col: number) => `cell-${row}-${col}`
@@ -243,30 +295,53 @@
 			return
 		}
 
+		const handleWorkerMessage = (event: MessageEvent) => {
+			const data = event.data as
+				| { id: number; type: 'progress'; attempt: number; maxAttempts: number; elapsed: number; workerIndex: number }
+				| { id: number; type: 'result'; ok: boolean; puzzle?: Puzzle; message?: string }
+			if (!pendingGeneration) {
+				return
+			}
+			const workerGen = workerGenerationMap.get(data.id)
+			if (workerGen !== pendingGeneration.generationId) {
+				return
+			}
+			if (data.type === 'progress') {
+				totalAttempts += 1
+				progressAttempt = totalAttempts
+				progressMaxAttempts = pendingGeneration.maxAttemptsPerWorker * workerPoolSize
+				progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
+				return
+			}
+			if (data.type === 'result' && data.ok && data.puzzle) {
+				pendingGeneration.resolve(data.puzzle)
+				cancelActiveWorkers()
+				return
+			}
+			pendingGeneration.remaining -= 1
+			if (pendingGeneration.remaining <= 0) {
+				pendingGeneration.reject(data.message ?? 'Unable to build puzzle.')
+				resetGenerationState()
+			}
+		}
+
 		if (typeof Worker !== 'undefined') {
-			puzzleWorker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
-			puzzleWorker.addEventListener('message', (event) => {
-				const { id, ok, puzzle, message } = event.data as {
-					id: number
-					ok: boolean
-					puzzle?: Puzzle
-					message?: string
-				}
-				if (!pendingWorker || pendingWorker.id !== id) {
-					return
-				}
-				if (ok && puzzle) {
-					pendingWorker.resolve(puzzle)
-				} else {
-					pendingWorker.reject(message ?? 'Unable to build puzzle.')
-				}
-				pendingWorker = null
-			})
-			puzzleWorker.addEventListener('error', () => {
-				if (pendingWorker) {
-					pendingWorker.reject('Puzzle generator worker failed.')
-					pendingWorker = null
-				}
+			const concurrency = Math.max(2, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1))
+			workerPoolSize = concurrency
+			workerPool = Array.from({ length: concurrency }, (_value, index) => {
+				const worker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
+				worker.addEventListener('message', handleWorkerMessage)
+				worker.addEventListener('error', () => {
+					if (!pendingGeneration) {
+						return
+					}
+					pendingGeneration.remaining -= 1
+					if (pendingGeneration.remaining <= 0) {
+						pendingGeneration.reject('Puzzle generator worker failed.')
+						resetGenerationState()
+					}
+				})
+				return worker
 			})
 		}
 
@@ -292,26 +367,58 @@
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
-			puzzleWorker?.terminate()
+			workerPool.forEach((worker) => worker.terminate())
 		}
 	})
 
 	const generatePuzzleAsync = (size: number) => {
-		if (puzzleWorker) {
+		if (workerPool.length > 0) {
 			return new Promise<Puzzle>((resolve, reject) => {
-				if (pendingWorker) {
+				if (pendingGeneration) {
 					reject('Puzzle generation already in progress.')
 					return
 				}
-				const id = workerRequestId++
-				pendingWorker = { id, resolve, reject }
-				puzzleWorker.postMessage({ id, size })
+				generationId += 1
+				const maxAttemptsPerWorker = 300
+				pendingGeneration = {
+					resolve,
+					reject,
+					remaining: workerPool.length,
+					generationId,
+					maxAttemptsPerWorker
+				}
+				totalAttempts = 0
+				progressAttempt = 0
+				progressMaxAttempts = workerPool.length * maxAttemptsPerWorker
+				progressElapsed = 0
+				progressMessage = 'Starting parallel puzzle search…'
+				activeWorkerIds = []
+				workerPool.forEach((worker, index) => {
+					const id = workerRequestId++
+					workerGenerationMap.set(id, generationId)
+					workerById.set(id, worker)
+					activeWorkerIds.push(id)
+					worker.postMessage({ id, size, maxAttempts: maxAttemptsPerWorker, workerIndex: index })
+				})
 			})
 		}
 		return Promise.resolve(generateRandomPuzzle(size))
 	}
 
+	const cancelGeneration = () => {
+		if (!generating) {
+			return
+		}
+		cancelActiveWorkers()
+		loadPuzzle(lastPuzzle)
+		generatorError = ''
+		generating = false
+		stopProgressTimer()
+		resetGenerationState()
+	}
+
 	const loadPuzzle = (next: Puzzle) => {
+		lastPuzzle = puzzle
 		puzzle = next
 		selectedSize = next.size
 		grid = createGrid(next.size)
@@ -325,6 +432,7 @@
 		}
 		generating = true
 		generatorError = ''
+		startProgressTimer()
 		await tick()
 		await waitForNextFrame()
 		try {
@@ -334,6 +442,7 @@
 			generatorError = error instanceof Error ? error.message : 'Unable to build puzzle.'
 		} finally {
 			generating = false
+			stopProgressTimer()
 		}
 	}
 
@@ -365,6 +474,9 @@
 			<button class="secondary" on:click={resetBoard}>Reset board</button>
 			<button class="primary" on:click={handleGenerateClick} disabled={generating}>
 				{generating ? 'Building puzzle…' : 'Generate another'}
+			</button>
+			<button class="secondary" on:click={cancelGeneration} disabled={!generating}>
+				Stop building puzzle
 			</button>
 		</div>
 	</section>
@@ -403,8 +515,14 @@
 		{#if generating}
 			<div class="loading-indicator" role="status" aria-live="polite">
 				<span class="spinner" aria-hidden="true"></span>
-				<span>Generating puzzle…</span>
+				<span>
+					{progressMessage || 'Searching for a unique puzzle configuration…'}
+					{#if progressMaxAttempts > 0}
+						<span class="loading-meta">Attempt {progressAttempt} of {progressMaxAttempts}</span>
+					{/if}
+				</span>
 			</div>
+			<div class="loading-timer" aria-live="polite">Elapsed: {progressElapsed.toFixed(1)}s</div>
 		{/if}
 	</section>
 

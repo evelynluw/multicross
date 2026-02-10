@@ -126,10 +126,10 @@ const countSolutions = (rows: number[][], cols: number[][], size: number, limit 
   return found
 }
 
-const hasUniqueSolution = (rows: number[][], cols: number[][], size: number) =>
+export const hasUniqueSolution = (rows: number[][], cols: number[][], size: number) =>
   countSolutions(rows, cols, size, 2) === 1
 
-const buildPuzzleFromGrid = (grid: number[][], name: string): Puzzle => {
+export const buildPuzzleFromGrid = (grid: number[][], name: string): Puzzle => {
   const rows = grid.map((line) => deriveLineHints(line))
   const cols = transpose(grid).map((line) => deriveLineHints(line))
   return {
@@ -155,7 +155,7 @@ export const defaultPuzzle: Puzzle = {
   ]
 }
 
-const randomGrid = (size: number, densityRange: [number, number]): number[][] => {
+export const randomGrid = (size: number, densityRange: [number, number]): number[][] => {
   const [minDensity, maxDensity] = densityRange
   const density = minDensity + Math.random() * (maxDensity - minDensity)
   let filled = 0

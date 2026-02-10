@@ -194,6 +194,18 @@ button:active {
   color: var(--text-muted);
 }
 
+.loading-meta {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.loading-timer {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .spinner {
   width: 1rem;
   height: 1rem;
