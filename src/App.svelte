@@ -47,6 +47,14 @@
 		return ['cell', state, focusClass, errorClass].filter(Boolean).join(' ')
 	}
 
+	const getSeparatorIndices = (size: number) => {
+		const indices: number[] = []
+		for (let idx = 5; idx < size; idx += 5) {
+			indices.push(idx)
+		}
+		return indices
+	}
+
 	const shouldSkipGlobalKey = (target: EventTarget | null) => {
 		if (!target) {
 			return false
@@ -89,6 +97,7 @@
 	$: focusedCellId = cellId(cursor.row, cursor.col)
 	$: cellSize = computeCellSize(dimension, boardScale)
 	$: cellGap = computeCellGap(dimension)
+	$: separatorIndices = getSeparatorIndices(dimension)
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
 	$: mismatchMap = boardComplete
 		? grid.map((row, rIdx) =>
@@ -387,6 +396,10 @@
 						>
 						</button>
 					{/each}
+				{/each}
+				{#each separatorIndices as index}
+					<div class="block-separator block-separator-row" style={`--separator-index: ${index};`}></div>
+					<div class="block-separator block-separator-col" style={`--separator-index: ${index};`}></div>
 				{/each}
 				<div class="focus-ring" aria-hidden="true" style={focusRingStyle}></div>
 			</div>
