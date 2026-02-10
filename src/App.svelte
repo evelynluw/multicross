@@ -6,6 +6,7 @@
 	type CellState = 'blank' | 'filled' | 'pencil' | 'crossed'
 	type Theme = 'dark' | 'light'
 	type BoardScale = 'small' | 'medium' | 'large'
+	type CellError = 'missing' | 'overfill'
 
 	const keyboardControls = [
 		{ label: 'Arrow Keys', description: 'Move the focused cell' },
@@ -31,6 +32,33 @@
 	const createGrid = (size: number): CellState[][] =>
 		Array.from({ length: size }, () => Array<CellState>(size).fill('blank'))
 
+	const createErrorMap = (size: number): (CellError | null)[][] =>
+		Array.from({ length: size }, () => Array<CellError | null>(size).fill(null))
+
+	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
+
+	const getCellErrorState = (row: number, col: number): CellError | null =>
+		mismatchMap?.[row]?.[col] ?? null
+
+	const cellClass = (row: number, col: number, state: CellState) => {
+		const focusClass = cursor.row === row && cursor.col === col ? 'focused' : ''
+		const error = getCellErrorState(row, col)
+		const errorClass = error ? `error error-${error}` : ''
+		return ['cell', state, focusClass, errorClass].filter(Boolean).join(' ')
+	}
+
+	const shouldSkipGlobalKey = (target: EventTarget | null) => {
+		if (!target) {
+			return false
+		}
+		const element = target as HTMLElement
+		if (element.isContentEditable) {
+			return true
+		}
+		const tagName = element.tagName
+		return tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA'
+	}
+
 	const moveMap = {
 		ArrowUp: { row: -1, col: 0 },
 		ArrowDown: { row: 1, col: 0 },
@@ -50,17 +78,41 @@
 	let generatorError = ''
 	let boardScale: BoardScale = 'medium'
 	let theme: Theme = 'dark'
+	let boardComplete = false
+	let hasErrors = false
+	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
 
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
 	$: columnHints = puzzle.cols
 	$: solutionGrid = puzzle.solution.map((row) => row.map((value) => Boolean(value)))
 	$: focusedCellId = cellId(cursor.row, cursor.col)
-	$: statusText = solved
-		? 'Puzzle solved! Every filled cell satisfies the clues.'
-		: 'Match the edge clues without guessing.'
 	$: cellSize = computeCellSize(dimension, boardScale)
 	$: cellGap = computeCellGap(dimension)
+	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
+	$: mismatchMap = boardComplete
+		? grid.map((row, rIdx) =>
+			row.map((cell, cIdx) => {
+				const shouldFill = solutionGrid[rIdx]?.[cIdx] ?? false
+				if (!shouldFill && cell === 'filled') {
+					return 'overfill'
+				}
+				if (shouldFill && cell !== 'filled') {
+					return 'missing'
+				}
+				return null
+			})
+		)
+		: createErrorMap(dimension)
+	$: hasErrors = mismatchMap.some((row) => row.some(Boolean))
+	$: solved = boardComplete && !hasErrors
+	$: statusText = solved
+		? 'Puzzle solved! Every filled cell satisfies the clues.'
+		: boardComplete && hasErrors
+			? 'Check the highlighted cells—they contain mistakes.'
+			: 'Match the edge clues without guessing.'
+	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
+		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
 
 	const focusBoard = async () => {
 		await tick()
@@ -71,9 +123,9 @@
 	const cellId = (row: number, col: number) => `cell-${row}-${col}`
 
 	const computeCellSize = (size: number, scale: BoardScale) => {
-		const base = scale === 'small' ? 14 : scale === 'large' ? 24 : 18
+		const base = scale === 'small' ? 28 : scale === 'large' ? 48 : 36
 		const dimensionFactor = size >= 20 ? 0.8 : size >= 15 ? 0.9 : size >= 10 ? 0.95 : 1
-		const px = Math.max(10, Math.round(base * dimensionFactor))
+		const px = Math.max(16, Math.round(base * dimensionFactor))
 		return `${px}px`
 	}
 
@@ -90,18 +142,12 @@
 		applyTheme(theme === 'dark' ? 'light' : 'dark')
 	}
 
-	const computeSolved = () =>
-		solutionGrid.every((row, rIdx) =>
-			row.every((shouldFill, cIdx) => shouldFill === (grid[rIdx][cIdx] === 'filled'))
-		)
-
 	const mutateCell = (row: number, col: number, transformer: (current: CellState) => CellState) => {
 		grid = grid.map((cells, rIdx) =>
 			rIdx === row
 				? cells.map((cell, cIdx) => (cIdx === col ? transformer(cell) : cell))
 				: cells
 		)
-		solved = computeSolved()
 	}
 
 	const toggleFill = (row: number, col: number) => {
@@ -121,6 +167,7 @@
 	}
 
 	const handleKeydown = (event: KeyboardEvent) => {
+		void focusBoard()
 		const key = event.key as MoveKey
 		if (moveMap[key]) {
 			event.preventDefault()
@@ -167,16 +214,37 @@
 	const resetBoard = () => {
 		grid = createGrid(dimension)
 		cursor = { row: 0, col: 0 }
-		solved = false
 		void focusBoard()
 	}
 
 	onMount(() => {
-		if (typeof window !== 'undefined') {
-			const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
-			applyTheme(prefersLight ? 'light' : 'dark')
+		if (typeof window === 'undefined') {
+			return
 		}
+
+		const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
+		applyTheme(prefersLight ? 'light' : 'dark')
+
+		const handleWindowKeydown = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) {
+				return
+			}
+			if (shouldSkipGlobalKey(event.target)) {
+				return
+			}
+			const key = event.key as MoveKey
+			if (!moveMap[key]) {
+				return
+			}
+			handleKeydown(event)
+		}
+
+		window.addEventListener('keydown', handleWindowKeydown)
 		void focusBoard()
+
+		return () => {
+			window.removeEventListener('keydown', handleWindowKeydown)
+		}
 	})
 
 	const loadPuzzle = (next: Puzzle) => {
@@ -184,7 +252,6 @@
 		selectedSize = next.size
 		grid = createGrid(next.size)
 		cursor = { row: 0, col: 0 }
-		solved = false
 		void focusBoard()
 	}
 
@@ -294,12 +361,13 @@
 			{/each}
 		</div>
 		<div
-			class={`board ${solved ? 'board-solved' : ''}`}
+			class={`board ${solved ? 'board-solved' : ''} ${boardComplete && hasErrors ? 'board-error' : ''}`.trim()}
 			tabindex="0"
 			role="grid"
 			aria-label={`Picross board ${dimension} by ${dimension}`}
 			aria-activedescendant={focusedCellId}
 			on:keydown={handleKeydown}
+			on:mousedown={() => void focusBoard()}
 			bind:this={boardElement}
 		>
 			<div class="board-grid">
@@ -307,8 +375,9 @@
 					{#each row as cell, colIdx}
 						<button
 							type="button"
-							class={`cell ${cell} ${cursor.row === rowIdx && cursor.col === colIdx ? 'focused' : ''}`}
+							class={cellClass(rowIdx, colIdx, cell)}
 							data-state={cell}
+							data-error={getCellErrorState(rowIdx, colIdx) ?? undefined}
 							aria-label={`Cell ${rowIdx + 1}, ${colIdx + 1}`}
 							aria-pressed={cell === 'filled'}
 							tabindex="-1"
@@ -319,6 +388,7 @@
 						</button>
 					{/each}
 				{/each}
+				<div class="focus-ring" aria-hidden="true" style={focusRingStyle}></div>
 			</div>
 		</div>
 	</section>
