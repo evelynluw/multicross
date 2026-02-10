@@ -87,6 +87,7 @@
 	let generatorError = ''
 	let boardScale: BoardScale = 'medium'
 	let theme: Theme = 'dark'
+	let isHydrated = false
 	let ensureUniqueness = true
 	let boardComplete = false
 	let hasErrors = false
@@ -115,6 +116,13 @@
 	let progressTimer: ReturnType<typeof setInterval> | null = null
 	let totalAttempts = 0
 	let workerStatuses: Array<{ index: number; attempts: number; elapsed: number; message: string }> = []
+	let showGenerationLogs = true
+
+	const STORAGE_KEYS = {
+		theme: 'picross:theme',
+		puzzle: 'picross:puzzle',
+		grid: 'picross:grid'
+	}
 
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
@@ -149,6 +157,12 @@
 	$: hasGenerationLogs = Boolean(progressMessage) || progressAttempt > 0 || workerStatuses.length > 0
 	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
 		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
+	$: if (isHydrated) {
+		saveTheme(theme)
+	}
+	$: if (isHydrated) {
+		savePuzzleState(puzzle, grid)
+	}
 
 	const focusBoard = async () => {
 		await tick()
@@ -282,6 +296,55 @@
 		}
 	}
 
+	const saveTheme = (nextTheme: Theme) => {
+		if (!isHydrated || typeof localStorage === 'undefined') {
+			return
+		}
+		try {
+			localStorage.setItem(STORAGE_KEYS.theme, nextTheme)
+		} catch {
+			// ignore storage errors
+		}
+	}
+
+	const savePuzzleState = (nextPuzzle: Puzzle, nextGrid: CellState[][]) => {
+		if (!isHydrated || typeof localStorage === 'undefined') {
+			return
+		}
+		try {
+			localStorage.setItem(STORAGE_KEYS.puzzle, JSON.stringify(nextPuzzle))
+			localStorage.setItem(STORAGE_KEYS.grid, JSON.stringify(nextGrid))
+		} catch {
+			// ignore storage errors
+		}
+	}
+
+	const isValidPuzzle = (value: unknown): value is Puzzle => {
+		if (!value || typeof value !== 'object') {
+			return false
+		}
+		const candidate = value as Puzzle
+		return (
+			typeof candidate.name === 'string' &&
+			typeof candidate.size === 'number' &&
+			Array.isArray(candidate.rows) &&
+			Array.isArray(candidate.cols) &&
+			Array.isArray(candidate.solution)
+		)
+	}
+
+	const isValidGrid = (value: unknown, size: number): value is CellState[][] => {
+		if (!Array.isArray(value) || value.length !== size) {
+			return false
+		}
+		return value.every(
+			(row) =>
+				Array.isArray(row) &&
+				row.length === size &&
+				row.every((cell) => ['blank', 'filled', 'pencil', 'crossed'].includes(cell as string))
+		)
+	}
+
 	const toggleTheme = () => {
 		applyTheme(theme === 'dark' ? 'light' : 'dark')
 	}
@@ -366,14 +429,42 @@
 			return
 		}
 
+		if (typeof localStorage !== 'undefined') {
+			const storedTheme = localStorage.getItem(STORAGE_KEYS.theme)
+			if (storedTheme === 'light' || storedTheme === 'dark') {
+				applyTheme(storedTheme)
+			}
+
+			const storedPuzzle = localStorage.getItem(STORAGE_KEYS.puzzle)
+			const storedGrid = localStorage.getItem(STORAGE_KEYS.grid)
+			try {
+				const parsedPuzzle = storedPuzzle ? JSON.parse(storedPuzzle) : null
+				const parsedGrid = storedGrid ? JSON.parse(storedGrid) : null
+				if (isValidPuzzle(parsedPuzzle)) {
+					puzzle = parsedPuzzle
+					lastPuzzle = parsedPuzzle
+					selectedSize = parsedPuzzle.size
+					if (isValidGrid(parsedGrid, parsedPuzzle.size)) {
+						grid = parsedGrid
+					} else {
+						grid = createGrid(parsedPuzzle.size)
+					}
+				}
+			} catch {
+				// ignore storage errors
+			}
+		}
+
 		if (typeof Worker !== 'undefined') {
 			maxWorkerCount = Math.max(1, navigator.hardwareConcurrency ?? 4)
 			workerCount = Math.max(1, Math.min(maxWorkerCount, Math.max(2, maxWorkerCount - 1)))
 			rebuildWorkerPool(workerCount)
 		}
 
-		const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
-		applyTheme(prefersLight ? 'light' : 'dark')
+		if (!localStorage.getItem(STORAGE_KEYS.theme)) {
+			const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
+			applyTheme(prefersLight ? 'light' : 'dark')
+		}
 
 		const handleWindowKeydown = (event: KeyboardEvent) => {
 			if (event.defaultPrevented) {
@@ -391,6 +482,7 @@
 
 		window.addEventListener('keydown', handleWindowKeydown)
 		void focusBoard()
+		isHydrated = true
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
@@ -570,27 +662,35 @@
 			<p class="error">{generatorError}</p>
 		{/if}
 		{#if generating || hasGenerationLogs}
-			<div class="loading-indicator" role="status" aria-live="polite">
-				{#if generating}
-					<span class="spinner" aria-hidden="true"></span>
-				{/if}
-				<span>
-					{progressMessage || 'Searching for a unique puzzle configuration…'}
-					{#if progressMaxAttempts > 0}
-						<span class="loading-meta">Attempt {progressAttempt} of {progressMaxAttempts}</span>
-					{/if}
-				</span>
+			<div class="log-header">
+				<h3>Generation logs</h3>
+				<button class="log-toggle" type="button" on:click={() => (showGenerationLogs = !showGenerationLogs)}>
+					{showGenerationLogs ? 'Hide logs' : 'Show logs'}
+				</button>
 			</div>
-			<div class="loading-timer" aria-live="polite">Elapsed: {progressElapsed.toFixed(1)}s</div>
-			{#if workerStatuses.length > 0}
-				<ul class="worker-status" aria-live="polite">
-					{#each workerStatuses as status}
-						<li>
-							<span>{status.message}</span>
-							<span class="worker-time">{status.elapsed.toFixed(1)}s</span>
-						</li>
-					{/each}
-				</ul>
+			{#if showGenerationLogs}
+				<div class="loading-indicator" role="status" aria-live="polite">
+					{#if generating}
+						<span class="spinner" aria-hidden="true"></span>
+					{/if}
+					<span>
+						{progressMessage || 'Searching for a unique puzzle configuration…'}
+						{#if progressMaxAttempts > 0}
+							<span class="loading-meta">Attempt {progressAttempt} of {progressMaxAttempts}</span>
+						{/if}
+					</span>
+				</div>
+				<div class="loading-timer" aria-live="polite">Elapsed: {progressElapsed.toFixed(1)}s</div>
+				{#if workerStatuses.length > 0}
+					<ul class="worker-status" aria-live="polite">
+						{#each workerStatuses as status}
+							<li>
+								<span>{status.message}</span>
+								<span class="worker-time">{status.elapsed.toFixed(1)}s</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			{/if}
 		{/if}
 	</section>
