@@ -89,6 +89,9 @@
 	let boardComplete = false
 	let hasErrors = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
+	let puzzleWorker: Worker | null = null
+	let pendingWorker: { id: number; resolve: (puzzle: Puzzle) => void; reject: (reason?: string) => void } | null = null
+	let workerRequestId = 0
 
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
@@ -127,6 +130,15 @@
 		await tick()
 		boardElement?.focus()
 	}
+
+	const waitForNextFrame = () =>
+		new Promise<void>((resolve) => {
+			if (typeof requestAnimationFrame === 'undefined') {
+				setTimeout(() => resolve(), 0)
+				return
+			}
+			requestAnimationFrame(() => resolve())
+		})
 
 	const clamp = (value: number) => Math.min(Math.max(value, 0), dimension - 1)
 	const cellId = (row: number, col: number) => `cell-${row}-${col}`
@@ -231,6 +243,33 @@
 			return
 		}
 
+		if (typeof Worker !== 'undefined') {
+			puzzleWorker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
+			puzzleWorker.addEventListener('message', (event) => {
+				const { id, ok, puzzle, message } = event.data as {
+					id: number
+					ok: boolean
+					puzzle?: Puzzle
+					message?: string
+				}
+				if (!pendingWorker || pendingWorker.id !== id) {
+					return
+				}
+				if (ok && puzzle) {
+					pendingWorker.resolve(puzzle)
+				} else {
+					pendingWorker.reject(message ?? 'Unable to build puzzle.')
+				}
+				pendingWorker = null
+			})
+			puzzleWorker.addEventListener('error', () => {
+				if (pendingWorker) {
+					pendingWorker.reject('Puzzle generator worker failed.')
+					pendingWorker = null
+				}
+			})
+		}
+
 		const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
 		applyTheme(prefersLight ? 'light' : 'dark')
 
@@ -253,8 +292,24 @@
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
+			puzzleWorker?.terminate()
 		}
 	})
+
+	const generatePuzzleAsync = (size: number) => {
+		if (puzzleWorker) {
+			return new Promise<Puzzle>((resolve, reject) => {
+				if (pendingWorker) {
+					reject('Puzzle generation already in progress.')
+					return
+				}
+				const id = workerRequestId++
+				pendingWorker = { id, resolve, reject }
+				puzzleWorker.postMessage({ id, size })
+			})
+		}
+		return Promise.resolve(generateRandomPuzzle(size))
+	}
 
 	const loadPuzzle = (next: Puzzle) => {
 		puzzle = next
@@ -271,8 +326,9 @@
 		generating = true
 		generatorError = ''
 		await tick()
+		await waitForNextFrame()
 		try {
-			const nextPuzzle = generateRandomPuzzle(size)
+			const nextPuzzle = await generatePuzzleAsync(size)
 			loadPuzzle(nextPuzzle)
 		} catch (error) {
 			generatorError = error instanceof Error ? error.message : 'Unable to build puzzle.'
@@ -344,6 +400,12 @@
 		{#if generatorError}
 			<p class="error">{generatorError}</p>
 		{/if}
+		{#if generating}
+			<div class="loading-indicator" role="status" aria-live="polite">
+				<span class="spinner" aria-hidden="true"></span>
+				<span>Generating puzzle…</span>
+			</div>
+		{/if}
 	</section>
 
 	<section class="puzzle-shell" style={`--dimension: ${dimension}; --cell-size: ${cellSize}; --cell-gap: ${cellGap};`}>
@@ -370,7 +432,7 @@
 			{/each}
 		</div>
 		<div
-			class={`board ${solved ? 'board-solved' : ''} ${boardComplete && hasErrors ? 'board-error' : ''}`.trim()}
+			class={`board ${solved ? 'board-solved' : ''} ${boardComplete && hasErrors ? 'board-error' : ''} ${generating ? 'board-loading' : ''}`.trim()}
 			tabindex="0"
 			role="grid"
 			aria-label={`Picross board ${dimension} by ${dimension}`}

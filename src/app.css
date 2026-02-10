@@ -185,6 +185,24 @@ button:active {
   box-shadow: var(--panel-shadow);
 }
 
+.loading-indicator {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  border-top-color: rgba(148, 163, 184, 0.85);
+  animation: spin 0.9s linear infinite;
+}
+
 .generator-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -347,6 +365,10 @@ button:active {
   border-color: rgba(248, 113, 113, 0.85);
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.35);
 }
+
+.board.board-loading {
+  opacity: 0.75;
+}
 .board-grid {
   display: grid;
   grid-template-columns: repeat(var(--dimension), var(--cell-size));
@@ -375,7 +397,6 @@ button:active {
   bottom: 0;
   left: calc(var(--separator-index) * (var(--cell-size) + var(--cell-gap)) - var(--cell-gap));
 }
-
 .focus-ring {
   position: absolute;
   width: var(--cell-size);
@@ -451,9 +472,9 @@ button:active {
   background: rgba(56, 189, 248, 0.9);
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.85);
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
 }
 
 .cell.error-overfill {
@@ -470,14 +491,20 @@ button:active {
 
 .cell.focused {
   outline: none;
-  box-shadow: none;
+    box-shadow: none;
+  }
+  
+  .cell.error-overfill.focused,
+  .cell.error-missing.focused {
+  box-shadow:
+      inset 0 0 0 2px rgba(248, 113, 113, 0.8),
+    0 0 0 2px rgba(132, 204, 22, 0.55);
 }
 
-.cell.error-overfill.focused,
-.cell.error-missing.focused {
-  box-shadow:
-    inset 0 0 0 2px rgba(248, 113, 113, 0.8),
-    0 0 0 2px rgba(132, 204, 22, 0.55);
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .controls-panel {
@@ -501,7 +528,7 @@ button:active {
 @media (max-width: 900px) {
   .puzzle-shell {
     grid-template-columns: minmax(90px, 32%) auto;
-  }
+  
 }
 
 @media (max-width: 640px) {
@@ -514,7 +541,7 @@ button:active {
     grid-template-columns: 1fr;
   }
 
-  .board {
-    justify-self: center;
+    .board {
+      justify-self: center;
   }
 }
