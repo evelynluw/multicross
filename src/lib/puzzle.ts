@@ -26,11 +26,11 @@ const deriveLineHints = (line: number[]): number[] => {
 const transpose = (grid: number[][]) =>
   grid[0].map((_, colIndex) => grid.map((row) => row[colIndex]))
 
-const buildLineOptions = (length: number, hints: number[]): number[] => {
+const buildLineOptions = (length: number, hints: number[]): number[][] => {
   if (hints.length === 0) {
-    return [0]
+      return [Array.from({ length }, () => 0)]
   }
-  const options: number[] = []
+    const options: number[][] = []
   const remainingSums: number[] = []
   let suffix = 0
   for (let i = hints.length - 1; i >= 0; i--) {
@@ -38,25 +38,24 @@ const buildLineOptions = (length: number, hints: number[]): number[] => {
     remainingSums[i] = suffix
   }
 
-  const place = (hintIndex: number, start: number, mask: number) => {
+    const place = (hintIndex: number, start: number, line: number[]) => {
     const blockLength = hints[hintIndex]
     const trailingSpace = hintIndex === hints.length - 1 ? 0 : hints.length - hintIndex - 1
     const remaining = hintIndex === hints.length - 1 ? 0 : remainingSums[hintIndex + 1] + trailingSpace
     for (let position = start; position <= length - blockLength - remaining; position++) {
-      let nextMask = mask
+        const nextLine = line.slice()
       for (let offset = 0; offset < blockLength; offset++) {
-        nextMask |= 1 << (position + offset)
+          nextLine[position + offset] = 1
       }
       if (hintIndex === hints.length - 1) {
-        options.push(nextMask)
+          options.push(nextLine)
       } else {
-        place(hintIndex + 1, position + blockLength + 1, nextMask)
+          place(hintIndex + 1, position + blockLength + 1, nextLine)
       }
-      nextMask = mask
     }
   }
 
-  place(0, 0, 0)
+    place(0, 0, Array.from({ length }, () => 0))
   return options
 }
 
@@ -75,12 +74,12 @@ const countSolutions = (rows: number[][], cols: number[][], size: number, limit 
       return
     }
 
-    for (const mask of rowOptions[rowIndex]) {
-      const snapshots = new Array<(number[] | null)>(size).fill(null)
+      for (const option of rowOptions[rowIndex]) {
+          const snapshots = new Array<(number[][] | null)>(size).fill(null)
       let valid = true
       for (let col = 0; col < size; col++) {
-        const bit = (mask >> col) & 1
-        const filtered = columnState[col].filter((candidate) => ((candidate >> rowIndex) & 1) === bit)
+          const bit = option[col]
+          const filtered = columnState[col].filter((candidate) => candidate[rowIndex] === bit)
         snapshots[col] = columnState[col]
         if (filtered.length === 0) {
           valid = false
@@ -95,7 +94,7 @@ const countSolutions = (rows: number[][], cols: number[][], size: number, limit 
 
       for (let col = 0; col < size; col++) {
         if (snapshots[col]) {
-          columnState[col] = snapshots[col] as number[]
+            columnState[col] = snapshots[col] as number[][]
         }
       }
 
@@ -157,7 +156,7 @@ const randomGrid = (size: number, densityRange: [number, number]): number[][] =>
   return grid
 }
 
-export const generateRandomPuzzle = (size: number, maxAttempts = 400): Puzzle => {
+export const generateRandomPuzzle = (size: number, maxAttempts = 600): Puzzle => {
   const densityRange: Record<number, [number, number]> = {
     5: [0.35, 0.65],
     10: [0.3, 0.55],

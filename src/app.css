@@ -259,7 +259,8 @@ button:active {
   grid-template-columns: repeat(var(--dimension), var(--cell-size));
   gap: var(--cell-gap);
   padding-inline: var(--cell-gap);
-    justify-content: start;
+  padding-block: var(--cell-gap);
+  justify-content: start;
     justify-items: center;
 }
 
@@ -268,11 +269,14 @@ button:active {
   flex-direction: column;
   gap: 0.15rem;
   align-items: center;
+  justify-content: flex-end;
+    min-height: var(--cell-size);
   color: var(--hint-text);
-  font-size: clamp(0.85rem, 1vw, 1rem);
-    font-weight: 500;
-    letter-spacing: 0.05em;
-    line-height: 1.1;
+  font-size: clamp(0.9rem, 1.1vw, 1.05rem);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1.05;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
 .row-hints {
@@ -282,43 +286,49 @@ button:active {
   grid-template-rows: repeat(var(--dimension), var(--cell-size));
   gap: var(--cell-gap);
   justify-items: end;
-    padding-block: var(--cell-gap);
+  padding-block: var(--cell-gap);
 }
 
 .row-hint {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+    min-height: var(--cell-size);
   gap: 0.25rem;
-    color: var(--hint-text);
-  font-size: clamp(0.85rem, 1.15vw, 1.05rem);
-    font-weight: 500;
-    letter-spacing: 0.05em;
-    line-height: 1.1;
+  color: var(--hint-text);
+  font-size: clamp(0.9rem, 1.2vw, 1.1rem);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1.05;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   }
   
-  .column-hint span,
-  .row-hint span {
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .column-hint.highlight,
-  .row-hint.highlight {
-    color: #60a5fa;
+ .column-hint span,
+ .row-hint span {
+   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.column-hint.highlight,
+.row-hint.highlight {
+  color: #60a5fa;
 }
 
 .board {
   grid-column: 2 / 3;
   grid-row: 2 / 3;
   justify-self: start;
-    border-radius: 1.25rem;
+  border-radius: 1.25rem;
     padding: var(--cell-gap);
     background: var(--board-bg);
     border: 2px solid var(--board-border);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   outline: none;
   max-width: 100%;
-    width: fit-content;
+  width: fit-content;
     overflow: auto;
 }
 
@@ -329,34 +339,34 @@ button:active {
 .board.board-solved {
   border-color: rgba(134, 239, 172, 0.8);
   box-shadow: var(--board-solved-shadow);
-  }
+}
+
 .board.board-error {
   border-color: rgba(248, 113, 113, 0.85);
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.35);
 }
-  
-  .board-grid {
-    display: grid;
-    grid-template-columns: repeat(var(--dimension), var(--cell-size));
-    grid-template-rows: repeat(var(--dimension), var(--cell-size));
-    gap: var(--cell-gap);
-    position: relative;
-    }
-    
-    .focus-ring {
-      position: absolute;
-      width: var(--cell-size);
-      height: var(--cell-size);
-      border-radius: 0.45rem;
-      border: 2px solid rgba(250, 204, 21, 0.95);
-      box-shadow:
-        0 0 14px rgba(250, 204, 21, 0.45),
-        inset 0 0 6px rgba(0, 0, 0, 0.45);
-      left: var(--focus-x);
-      top: var(--focus-y);
-      pointer-events: none;
-      transition: left 80ms ease, top 80ms ease;
-  
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dimension), var(--cell-size));
+  grid-template-rows: repeat(var(--dimension), var(--cell-size));
+  gap: var(--cell-gap);
+  position: relative;
+}
+
+.focus-ring {
+  position: absolute;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  border-radius: 0.45rem;
+  border: 2px solid rgba(250, 204, 21, 0.95);
+  box-shadow:
+    0 0 14px rgba(250, 204, 21, 0.45),
+    inset 0 0 6px rgba(0, 0, 0, 0.45);
+  left: var(--focus-x);
+  top: var(--focus-y);
+  pointer-events: none;
+  transition: left 80ms ease, top 80ms ease;
+}
 
 .cell {
   border-radius: 0.35rem;
@@ -428,9 +438,10 @@ button:active {
   border-color: rgba(248, 113, 113, 0.85);
   box-shadow: inset 0 0 0 2px rgba(248, 113, 113, 0.7);
 }
+
 .cell.focused {
   outline: 2px solid rgba(250, 204, 21, 0.85);
-    outline-offset: -2px;
+  outline-offset: -2px;
     box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.4);
   }
   
