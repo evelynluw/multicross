@@ -127,6 +127,52 @@ main {
   gap: 0.75rem;
 }
 
+.uniqueness-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.uniqueness-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.worker-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.worker-input input {
+  width: 4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--select-border);
+  background: var(--select-bg);
+  color: var(--text-primary);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.worker-max {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.uniqueness-toggle input {
+  accent-color: #84cc16;
+}
+
 button {
   border: none;
   border-radius: 999px;

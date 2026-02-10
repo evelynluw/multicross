@@ -5,6 +5,7 @@ type WorkerRequest = {
   size: number
   maxAttempts: number
   workerIndex: number
+  requireUnique: boolean
 }
 
 type WorkerCancel = {
@@ -42,7 +43,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest | WorkerCance
     return
   }
 
-  const { id, size, maxAttempts, workerIndex } = data
+  const { id, size, maxAttempts, workerIndex, requireUnique } = data
   try {
     activeTaskId = id
     cancelled = false
@@ -121,7 +122,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest | WorkerCance
         continue
       }
       const candidate = buildPuzzleFromGrid(grid, `Random practice ${size}x${size}`)
-      if (hasUniqueSolution(candidate.rows, candidate.cols, size)) {
+      if (!requireUnique || hasUniqueSolution(candidate.rows, candidate.cols, size)) {
         const response: WorkerResponse = { id, type: 'result', ok: true, puzzle: candidate }
         ctx.postMessage(response)
         return

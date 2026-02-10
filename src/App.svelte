@@ -87,11 +87,14 @@
 	let generatorError = ''
 	let boardScale: BoardScale = 'medium'
 	let theme: Theme = 'dark'
+	let ensureUniqueness = true
 	let boardComplete = false
 	let hasErrors = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
 	let workerPool: Worker[] = []
 	let workerPoolSize = 0
+	let maxWorkerCount = 4
+	let workerCount = 4
 	let workerGenerationMap = new Map<number, number>()
 	let workerById = new Map<number, Worker>()
 	let pendingGeneration: {
@@ -192,6 +195,72 @@
 			}
 		}
 		resetGenerationState()
+	}
+
+	const handleWorkerMessage = (event: MessageEvent) => {
+		const data = event.data as
+			| { id: number; type: 'progress'; attempt: number; maxAttempts: number; elapsed: number; workerIndex: number }
+			| { id: number; type: 'result'; ok: boolean; puzzle?: Puzzle; message?: string }
+		if (!pendingGeneration) {
+			return
+		}
+		const workerGen = workerGenerationMap.get(data.id)
+		if (workerGen !== pendingGeneration.generationId) {
+			return
+		}
+		if (data.type === 'progress') {
+			totalAttempts += 1
+			progressAttempt = totalAttempts
+			progressMaxAttempts = pendingGeneration.maxAttemptsPerWorker * workerPoolSize
+			progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
+			workerStatuses = workerStatuses.map((status) =>
+				status.index === data.workerIndex
+					? {
+						...status,
+						attempts: data.attempt,
+						elapsed: data.elapsed,
+						message: `Worker ${data.workerIndex + 1}: attempt ${data.attempt}/${data.maxAttempts}`
+					}
+					: status
+			)
+			return
+		}
+		if (data.type === 'result' && data.ok && data.puzzle) {
+			pendingGeneration.resolve(data.puzzle)
+			cancelActiveWorkers()
+			return
+		}
+		pendingGeneration.remaining -= 1
+		if (pendingGeneration.remaining <= 0) {
+			pendingGeneration.reject(data.message ?? 'Unable to build puzzle.')
+			resetGenerationState()
+		}
+	}
+
+	const rebuildWorkerPool = (count: number) => {
+		workerPool.forEach((worker) => worker.terminate())
+		workerPool = []
+		workerPoolSize = 0
+		if (typeof Worker === 'undefined') {
+			return
+		}
+		const safeCount = Math.max(1, Math.min(count, maxWorkerCount))
+		workerPoolSize = safeCount
+		workerPool = Array.from({ length: safeCount }, () => {
+			const worker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
+			worker.addEventListener('message', handleWorkerMessage)
+			worker.addEventListener('error', () => {
+				if (!pendingGeneration) {
+					return
+				}
+				pendingGeneration.remaining -= 1
+				if (pendingGeneration.remaining <= 0) {
+					pendingGeneration.reject('Puzzle generator worker failed.')
+					resetGenerationState()
+				}
+			})
+			return worker
+		})
 	}
 
 	const clamp = (value: number) => Math.min(Math.max(value, 0), dimension - 1)
@@ -297,64 +366,10 @@
 			return
 		}
 
-		const handleWorkerMessage = (event: MessageEvent) => {
-			const data = event.data as
-				| { id: number; type: 'progress'; attempt: number; maxAttempts: number; elapsed: number; workerIndex: number }
-				| { id: number; type: 'result'; ok: boolean; puzzle?: Puzzle; message?: string }
-			if (!pendingGeneration) {
-				return
-			}
-			const workerGen = workerGenerationMap.get(data.id)
-			if (workerGen !== pendingGeneration.generationId) {
-				return
-			}
-			if (data.type === 'progress') {
-				totalAttempts += 1
-				progressAttempt = totalAttempts
-				progressMaxAttempts = pendingGeneration.maxAttemptsPerWorker * workerPoolSize
-				progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
-				workerStatuses = workerStatuses.map((status) =>
-					status.index === data.workerIndex
-						? {
-							...status,
-							attempts: data.attempt,
-							elapsed: data.elapsed,
-							message: `Worker ${data.workerIndex + 1}: attempt ${data.attempt}/${data.maxAttempts}`
-						}
-						: status
-				)
-				return
-			}
-			if (data.type === 'result' && data.ok && data.puzzle) {
-				pendingGeneration.resolve(data.puzzle)
-				cancelActiveWorkers()
-				return
-			}
-			pendingGeneration.remaining -= 1
-			if (pendingGeneration.remaining <= 0) {
-				pendingGeneration.reject(data.message ?? 'Unable to build puzzle.')
-				resetGenerationState()
-			}
-		}
-
 		if (typeof Worker !== 'undefined') {
-			const concurrency = Math.max(2, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1))
-			workerPoolSize = concurrency
-			workerPool = Array.from({ length: concurrency }, (_value, index) => {
-				const worker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
-				worker.addEventListener('message', handleWorkerMessage)
-				worker.addEventListener('error', () => {
-					if (!pendingGeneration) {
-						return
-					}
-					pendingGeneration.remaining -= 1
-					if (pendingGeneration.remaining <= 0) {
-						pendingGeneration.reject('Puzzle generator worker failed.')
-						resetGenerationState()
-					}
-				})
-				return worker
-			})
+			maxWorkerCount = Math.max(1, navigator.hardwareConcurrency ?? 4)
+			workerCount = Math.max(1, Math.min(maxWorkerCount, Math.max(2, maxWorkerCount - 1)))
+			rebuildWorkerPool(workerCount)
 		}
 
 		const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
@@ -383,6 +398,10 @@
 		}
 	})
 
+	$: if (!generating && workerPoolSize && workerCount !== workerPoolSize) {
+		rebuildWorkerPool(workerCount)
+	}
+
 	const generatePuzzleAsync = (size: number) => {
 		if (workerPool.length > 0) {
 			return new Promise<Puzzle>((resolve, reject) => {
@@ -392,6 +411,7 @@
 				}
 				generationId += 1
 				const maxAttemptsPerWorker = 300
+				const requireUnique = ensureUniqueness
 				pendingGeneration = {
 					resolve,
 					reject,
@@ -416,11 +436,11 @@
 					workerGenerationMap.set(id, generationId)
 					workerById.set(id, worker)
 					activeWorkerIds.push(id)
-					worker.postMessage({ id, size, maxAttempts: maxAttemptsPerWorker, workerIndex: index })
+					worker.postMessage({ id, size, maxAttempts: maxAttemptsPerWorker, workerIndex: index, requireUnique })
 				})
 			})
 		}
-		return Promise.resolve(generateRandomPuzzle(size))
+		return Promise.resolve(generateRandomPuzzle(size, 600, ensureUniqueness))
 	}
 
 	const cancelGeneration = () => {
@@ -497,6 +517,24 @@
 			<button class="secondary" on:click={cancelGeneration} disabled={!generating}>
 				Stop building puzzle
 			</button>
+		</div>
+		<div class="uniqueness-toggle">
+			<label class="uniqueness-option">
+				<input type="checkbox" bind:checked={ensureUniqueness} />
+				<span>ensure uniqueness</span>
+			</label>
+			<label class="worker-input">
+				<span>workers</span>
+				<input
+					type="number"
+					min="1"
+					max={maxWorkerCount}
+					bind:value={workerCount}
+					disabled={generating}
+					inputmode="numeric"
+				/>
+				<span class="worker-max">/ {maxWorkerCount}</span>
+			</label>
 		</div>
 	</section>
 

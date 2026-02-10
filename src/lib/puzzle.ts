@@ -178,7 +178,7 @@ export const randomGrid = (
   return grid
 }
 
-export const generateRandomPuzzle = (size: number, maxAttempts = 600): Puzzle => {
+export const generateRandomPuzzle = (size: number, maxAttempts = 600, requireUnique = true): Puzzle => {
   const densityRange: Record<number, [number, number]> = {
     5: [0.35, 0.65],
     10: [0.3, 0.55],
@@ -186,6 +186,10 @@ export const generateRandomPuzzle = (size: number, maxAttempts = 600): Puzzle =>
     20: [0.26, 0.45]
   }
   const range = densityRange[size] ?? [0.25, 0.5]
+  if (!requireUnique) {
+    const grid = randomGrid(size, range)
+    return buildPuzzleFromGrid(grid, `Random practice ${size}x${size}`)
+  }
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const grid = randomGrid(size, range)
     const candidate = buildPuzzleFromGrid(grid, `Random practice ${size}x${size}`)
