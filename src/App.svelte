@@ -35,6 +35,8 @@
 	const createErrorMap = (size: number): (CellError | null)[][] =>
 		Array.from({ length: size }, () => Array<CellError | null>(size).fill(null))
 
+	type Run = { start: number; end: number; length: number }
+
 	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
 
 	const getCellErrorState = (row: number, col: number): CellError | null =>
@@ -53,6 +55,43 @@
 			indices.push(idx)
 		}
 		return indices
+	}
+
+	const computeRuns = (line: boolean[]): Run[] => {
+		const runs: Run[] = []
+		let start = -1
+		for (let idx = 0; idx <= line.length; idx += 1) {
+			const value = line[idx]
+			if (value && start === -1) {
+				start = idx
+			}
+			if ((!value || idx === line.length) && start !== -1) {
+				const end = idx - 1
+				runs.push({ start, end, length: end - start + 1 })
+				start = -1
+			}
+		}
+		return runs
+	}
+
+	const isRunSatisfied = (line: CellState[], solutionLine: boolean[], run: Run) => {
+		for (let idx = run.start; idx <= run.end; idx += 1) {
+			if (line[idx] !== 'filled') {
+				return false
+			}
+		}
+		if (run.start > 0 && line[run.start - 1] === 'filled') {
+			return false
+		}
+		if (run.end < line.length - 1 && line[run.end + 1] === 'filled') {
+			return false
+		}
+		for (let idx = 0; idx < run.start; idx += 1) {
+			if (line[idx] === 'filled' && !solutionLine[idx]) {
+				return false
+			}
+		}
+		return true
 	}
 
 	const shouldSkipGlobalKey = (target: EventTarget | null) => {
@@ -132,6 +171,20 @@
 	$: cellSize = computeCellSize(dimension, boardScale)
 	$: cellGap = computeCellGap(dimension)
 	$: separatorIndices = getSeparatorIndices(dimension)
+	$: solutionRowRuns = solutionGrid.map((row) => computeRuns(row))
+	$: solutionColumnRuns = Array.from({ length: dimension }, (_value, col) =>
+		computeRuns(solutionGrid.map((row) => row[col]))
+	)
+	$: rowClueSatisfied = solutionRowRuns.map((runs, rowIdx) => {
+		const line = grid[rowIdx] ?? []
+		const solutionLine = solutionGrid[rowIdx] ?? []
+		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
+	})
+	$: columnClueSatisfied = solutionColumnRuns.map((runs, colIdx) => {
+		const line = grid.map((row) => row[colIdx])
+		const solutionLine = solutionGrid.map((row) => row[colIdx])
+		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
+	})
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
 	$: mismatchMap = boardComplete
 		? grid.map((row, rIdx) =>
@@ -703,8 +756,8 @@
 		<div class="column-hints" aria-hidden="true">
 			{#each columnHints as column, col}
 				<div class={`column-hint ${cursor.col === col ? 'highlight' : ''}`}>
-					{#each column as number}
-						<span>{number}</span>
+					{#each column as number, clueIdx}
+						<span class={columnClueSatisfied[col]?.[clueIdx] ? 'clue-satisfied' : ''}>{number}</span>
 					{/each}
 				</div>
 			{/each}
@@ -712,8 +765,8 @@
 		<div class="row-hints" aria-hidden="true">
 			{#each rowHints as row, rowIdx}
 				<div class={`row-hint ${cursor.row === rowIdx ? 'highlight' : ''}`}>
-					{#each row as number}
-						<span>{number}</span>
+					{#each row as number, clueIdx}
+						<span class={rowClueSatisfied[rowIdx]?.[clueIdx] ? 'clue-satisfied' : ''}>{number}</span>
 					{/each}
 				</div>
 			{/each}

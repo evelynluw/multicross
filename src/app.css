@@ -400,7 +400,7 @@ button:active {
   justify-content: flex-end;
     min-height: var(--cell-size);
   color: var(--hint-text);
-  font-size: clamp(0.9rem, 1.1vw, 1.05rem);
+  font-size: clamp(1rem, 1.35vw, 1.25rem);
     font-weight: 600;
     letter-spacing: 0.03em;
     line-height: 1.05;
@@ -425,7 +425,7 @@ button:active {
     min-height: var(--cell-size);
   gap: 0.25rem;
   color: var(--hint-text);
-  font-size: clamp(0.9rem, 1.2vw, 1.1rem);
+  font-size: clamp(1rem, 1.4vw, 1.3rem);
     font-weight: 600;
     letter-spacing: 0.03em;
     line-height: 1.05;
@@ -438,6 +438,12 @@ button:active {
   display: inline-flex;
     align-items: center;
     justify-content: center;
+}
+
+.column-hint span.clue-satisfied,
+.row-hint span.clue-satisfied {
+  color: rgba(148, 163, 184, 0.75);
+  text-decoration: none;
 }
 
 .column-hint.highlight,
