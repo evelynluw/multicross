@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
-	import { defaultPuzzle, generateRandomPuzzle, type Puzzle } from './lib/puzzle'
-	import { PuzzleWorkerPool, type WorkerEvent } from './lib/puzzleWorkerPool'
+	import { defaultPuzzle, type Puzzle } from './lib/puzzle'
 	import { computeClueSatisfaction, type CellState, type ClueHintMode } from './lib/clueHinting'
 	import {
 		getMoveDelta,
@@ -15,6 +14,7 @@
 		mouseControls,
 		shouldSkipGlobalKey
 	} from './lib/controls'
+	import { createPuzzleGenerationController } from './lib/puzzleGeneration'
 	import PuzzlePanel from './lib/components/PuzzlePanel.svelte'
 	import ControlsPanel from './lib/components/ControlsPanel.svelte'
 
@@ -84,8 +84,6 @@
 	let gameTimerInterval: ReturnType<typeof setInterval> | null = null
 	let boardElement: HTMLDivElement | null = null
 	let selectedSize = puzzle.size
-	let generating = false
-	let generatorError = ''
 	let boardScale: BoardScale = 'medium'
 	let clueHintMode: ClueHintMode = 'mild'
 	let theme: Theme = 'dark'
@@ -95,22 +93,15 @@
 	let hasErrors = false
 	let showMistakes = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
-	let workerPool: PuzzleWorkerPool | null = null
-	let workerPoolSize = 0
-	let maxWorkerCount = 4
-	let workerCount = 4
-	let progressAttempt = 0
-	let progressMaxAttempts = 0
-	let progressElapsed = 0
-	let progressMessage = ''
-	let progressStart = 0
-	let progressTimer: ReturnType<typeof setInterval> | null = null
-	let totalAttempts = 0
-	let workerStatuses: Array<{ index: number; attempts: number; elapsed: number; message: string }> = []
-	let showGenerationLogs = true
 	let undoStack: CellState[][][] = []
 	let redoStack: CellState[][][] = []
 	const maxHistory = 200
+	const generation = createPuzzleGenerationController({
+		getEnsureUniqueness: () => ensureUniqueness,
+		getLastPuzzle: () => lastPuzzle,
+		onLoadPuzzle: (nextPuzzle) => loadPuzzle(nextPuzzle)
+	})
+	const generationState = generation.state
 
 	const STORAGE_KEYS = {
 		theme: 'picross:theme',
@@ -188,7 +179,10 @@
 	$: if (solved && gameTimerRunning) {
 		stopGameTimer()
 	}
-	$: hasGenerationLogs = Boolean(progressMessage) || progressAttempt > 0 || workerStatuses.length > 0
+	$: hasGenerationLogs =
+		Boolean($generationState.progressMessage) ||
+		$generationState.progressAttempt > 0 ||
+		$generationState.workerStatuses.length > 0
 	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
 		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
 	$: if (isHydrated) {
@@ -238,77 +232,6 @@
 			gameTimerElapsed = (performance.now() - gameTimerStart) / 1000
 		}
 		gameTimerRunning = false
-	}
-
-	// Wait until the next animation frame for UI updates.
-	const waitForNextFrame = () =>
-		new Promise<void>((resolve) => {
-			if (typeof requestAnimationFrame === 'undefined') {
-				setTimeout(() => resolve(), 0)
-				return
-			}
-			requestAnimationFrame(() => resolve())
-		})
-
-	// Start the generation progress timer.
-	const startProgressTimer = () => {
-		progressStart = performance.now()
-		progressElapsed = 0
-		progressTimer = setInterval(() => {
-			progressElapsed = (performance.now() - progressStart) / 1000
-		}, 100)
-	}
-
-	// Stop the generation progress timer.
-	const stopProgressTimer = () => {
-		if (progressTimer) {
-			clearInterval(progressTimer)
-			progressTimer = null
-		}
-		progressElapsed = (performance.now() - progressStart) / 1000
-	}
-
-	// ==================================================
-	// Puzzle generation & workers
-	// ==================================================
-	// Process worker progress and error events.
-	const handleWorkerEvent = (event: WorkerEvent) => {
-		if (event.type === 'progress') {
-			totalAttempts += 1
-			progressAttempt = totalAttempts
-			progressMaxAttempts = event.maxAttempts * workerPoolSize
-			progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
-			workerStatuses = workerStatuses.map((status) =>
-				status.index === event.workerIndex
-					? {
-						...status,
-						attempts: event.attempt,
-						elapsed: event.elapsed,
-						message: `Worker ${event.workerIndex + 1}: attempt ${event.attempt}/${event.maxAttempts}`
-					}
-					: status
-			)
-			return
-		}
-		if (event.type === 'error') {
-			generatorError = event.message
-		}
-	}
-
-	// Create or resize the worker pool.
-	const rebuildWorkerPool = (count: number) => {
-		const safeCount = Math.max(1, Math.min(count, maxWorkerCount))
-		workerPoolSize = safeCount
-		if (typeof Worker === 'undefined') {
-			workerPool = null
-			workerPoolSize = 0
-			return
-		}
-		if (!workerPool) {
-			workerPool = new PuzzleWorkerPool(safeCount, handleWorkerEvent)
-			return
-		}
-		workerPool.setWorkerCount(safeCount)
 	}
 
 	// Clamp a value to the board bounds.
@@ -564,11 +487,7 @@
 			}
 		}
 
-		if (typeof Worker !== 'undefined') {
-			maxWorkerCount = Math.max(1, navigator.hardwareConcurrency ?? 4)
-			workerCount = Math.max(1, Math.min(maxWorkerCount, Math.max(2, maxWorkerCount - 1)))
-			rebuildWorkerPool(workerCount)
-		}
+		generation.initialize()
 
 		if (!localStorage.getItem(STORAGE_KEYS.theme)) {
 			const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches
@@ -601,7 +520,7 @@
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
-			workerPool?.dispose()
+			generation.dispose()
 			stopGameTimer()
 		}
 	})
@@ -609,42 +528,8 @@
 	// ==================================================
 	// Puzzle generation
 	// ==================================================
-	$: if (!generating && workerCount !== workerPoolSize) {
-		rebuildWorkerPool(workerCount)
-	}
-
-	// Create a puzzle using the worker pool or fallback generator.
-	const generatePuzzleAsync = (size: number) => {
-		if (workerPool && workerPoolSize > 0) {
-			const maxAttemptsPerWorker = 300
-			const requireUnique = ensureUniqueness
-			totalAttempts = 0
-			progressAttempt = 0
-			progressMaxAttempts = workerPoolSize * maxAttemptsPerWorker
-			progressElapsed = 0
-			progressMessage = 'Starting parallel puzzle search…'
-			workerStatuses = Array.from({ length: workerPoolSize }, (_worker, index) => ({
-				index,
-				attempts: 0,
-				elapsed: 0,
-				message: `Worker ${index + 1}: starting…`
-			}))
-			return workerPool.generate(size, maxAttemptsPerWorker, requireUnique)
-		}
-		return Promise.resolve(generateRandomPuzzle(size, 600, ensureUniqueness))
-	}
-
 	// Cancel an in-flight puzzle generation.
-	const cancelGeneration = () => {
-		if (!generating) {
-			return
-		}
-		workerPool?.cancel()
-		loadPuzzle(lastPuzzle)
-		generatorError = ''
-		generating = false
-		stopProgressTimer()
-	}
+	const cancelGeneration = () => generation.cancel()
 
 	// Load a new puzzle and reset board state.
 	const loadPuzzle = (next: Puzzle) => {
@@ -661,39 +546,24 @@
 		void focusBoard()
 	}
 
-	// Build a puzzle for the selected size with progress tracking.
-	const buildPuzzleForSize = async (size: number) => {
-		if (generating) {
-			return
-		}
-		generating = true
-		generatorError = ''
-		startProgressTimer()
-		await tick()
-		await waitForNextFrame()
-		try {
-			const nextPuzzle = await generatePuzzleAsync(size)
-			loadPuzzle(nextPuzzle)
-		} catch (error) {
-			generatorError = error instanceof Error ? error.message : 'Unable to build puzzle.'
-		} finally {
-			generating = false
-			progressMessage = 'Finished parallel puzzle search.'
-			stopProgressTimer()
-		}
-	}
-
 	// Handle size selection changes.
 	const handleSizeChange = async (event: Event) => {
 		const target = event.currentTarget as HTMLSelectElement
 		const value = Number(target.value)
 		selectedSize = value
-		await buildPuzzleForSize(value)
+		await generation.generateForSize(value)
 	}
 
 	// Handle the "Generate another" click.
 	const handleGenerateClick = async () => {
-		await buildPuzzleForSize(selectedSize)
+		await generation.generateForSize(selectedSize)
+	}
+
+	// Handle worker count changes from the input.
+	const handleWorkerCountChange = (event: Event) => {
+		const target = event.currentTarget as HTMLInputElement
+		const value = Number(target.value)
+		generation.setWorkerCount(value)
 	}
 
 	// Toggle mistake highlighting.
@@ -715,10 +585,10 @@
 		</div>
 		<div class="hero-actions">
 			<button class="secondary" on:click={resetBoard}>Reset board</button>
-			<button class="primary" on:click={handleGenerateClick} disabled={generating}>
-				{generating ? 'Building puzzle…' : 'Generate another'}
+			<button class="primary" on:click={handleGenerateClick} disabled={$generationState.generating}>
+				{$generationState.generating ? 'Building puzzle…' : 'Generate another'}
 			</button>
-			<button class="secondary" on:click={cancelGeneration} disabled={!generating}>
+			<button class="secondary" on:click={cancelGeneration} disabled={!$generationState.generating}>
 				Stop building puzzle
 			</button>
 		</div>
@@ -732,12 +602,13 @@
 				<input
 					type="number"
 					min="1"
-					max={maxWorkerCount}
-					bind:value={workerCount}
-					disabled={generating}
+					max={$generationState.maxWorkerCount}
+					value={$generationState.workerCount}
+					on:input={handleWorkerCountChange}
+					disabled={$generationState.generating}
 					inputmode="numeric"
 				/>
-				<span class="worker-max">/ {maxWorkerCount}</span>
+				<span class="worker-max">/ {$generationState.maxWorkerCount}</span>
 			</label>
 		</div>
 	</section>
@@ -763,7 +634,7 @@
 					bind:value={selectedSize}
 					on:change={handleSizeChange}
 					aria-label="Select board size"
-					disabled={generating}
+					disabled={$generationState.generating}
 				>
 					{#each sizeOptions as size}
 						<option value={size}>
@@ -802,32 +673,36 @@
 				</select>
 			</label>
 		</div>
-		{#if generatorError}
-			<p class="error">{generatorError}</p>
+		{#if $generationState.generatorError}
+			<p class="error">{$generationState.generatorError}</p>
 		{/if}
-		{#if generating || hasGenerationLogs}
+		{#if $generationState.generating || hasGenerationLogs}
 			<div class="log-header">
 				<h3>Generation logs</h3>
-				<button class="log-toggle" type="button" on:click={() => (showGenerationLogs = !showGenerationLogs)}>
-					{showGenerationLogs ? 'Hide logs' : 'Show logs'}
+				<button class="log-toggle" type="button" on:click={generation.toggleShowGenerationLogs}>
+					{$generationState.showGenerationLogs ? 'Hide logs' : 'Show logs'}
 				</button>
 			</div>
-			{#if showGenerationLogs}
+			{#if $generationState.showGenerationLogs}
 				<div class="loading-indicator" role="status" aria-live="polite">
-					{#if generating}
+					{#if $generationState.generating}
 						<span class="spinner" aria-hidden="true"></span>
 					{/if}
 					<span>
-						{progressMessage || 'Searching for a unique puzzle configuration…'}
-						{#if progressMaxAttempts > 0}
-							<span class="loading-meta">Attempt {progressAttempt} of {progressMaxAttempts}</span>
+						{$generationState.progressMessage || 'Searching for a unique puzzle configuration…'}
+						{#if $generationState.progressMaxAttempts > 0}
+							<span class="loading-meta">
+								Attempt {$generationState.progressAttempt} of {$generationState.progressMaxAttempts}
+							</span>
 						{/if}
 					</span>
 				</div>
-				<div class="loading-timer" aria-live="polite">Elapsed: {progressElapsed.toFixed(1)}s</div>
-				{#if workerStatuses.length > 0}
+				<div class="loading-timer" aria-live="polite">
+					Elapsed: {$generationState.progressElapsed.toFixed(1)}s
+				</div>
+				{#if $generationState.workerStatuses.length > 0}
 					<ul class="worker-status" aria-live="polite">
-						{#each workerStatuses as status}
+						{#each $generationState.workerStatuses as status}
 							<li>
 								<span>{status.message}</span>
 								<span class="worker-time">{status.elapsed.toFixed(1)}s</span>
@@ -847,7 +722,7 @@
 		solved={solved}
 		boardComplete={boardComplete}
 		hasErrors={hasErrors}
-		generating={generating}
+		generating={$generationState.generating}
 		rowHints={rowHints}
 		columnHints={columnHints}
 		rowClueSatisfied={rowClueSatisfied}
