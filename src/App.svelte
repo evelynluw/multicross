@@ -3,27 +3,24 @@
 	import { defaultPuzzle, generateRandomPuzzle, type Puzzle } from './lib/puzzle'
 	import { PuzzleWorkerPool, type WorkerEvent } from './lib/puzzleWorkerPool'
 	import { computeClueSatisfaction, type CellState, type ClueHintMode } from './lib/clueHinting'
+	import {
+		getMoveDelta,
+		handleKeydown as handleKeydownControl,
+		isCrossKey,
+		isFillKey,
+		isPencilKey,
+		isRedoKey,
+		isUndoKey,
+		keyboardControls,
+		mouseControls,
+		shouldSkipGlobalKey
+	} from './lib/controls'
 	import PuzzlePanel from './lib/components/PuzzlePanel.svelte'
 	import ControlsPanel from './lib/components/ControlsPanel.svelte'
 
 	type Theme = 'dark' | 'light'
 	type BoardScale = 'small' | 'medium' | 'large'
 	type CellError = 'missing' | 'overfill'
-
-	const keyboardControls = [
-		{ label: 'Arrow Keys / WASD', description: 'Move the focused cell' },
-		{ label: 'Enter or F or C', description: 'Fill or unfill the focused cell' },
-		{ label: 'Space or  \' ', description: 'Toggle a pencil mark' },
-		{ label: 'X or /', description: 'Add or remove a cross mark' },
-		{ label: 'Z', description: 'Undo last move' },
-		{ label: 'Shift + Z', description: 'Redo last move' }
-	]
-
-	const mouseControls = [
-		{ label: 'Click', description: 'Fill or unfill a cell' },
-		{ label: 'Shift + Click', description: 'Toggle a pencil mark' },
-		{ label: 'Right Click', description: 'Toggle a cross mark' }
-	]
 
 	const sizeOptions = [5, 10, 15, 20]
 	const boardScaleOptions: BoardScale[] = ['small', 'medium', 'large']
@@ -60,35 +57,6 @@
 		return indices
 	}
 
-
-	const shouldSkipGlobalKey = (target: EventTarget | null) => {
-		if (!target) {
-			return false
-		}
-		const element = target as HTMLElement
-		if (element.isContentEditable) {
-			return true
-		}
-		const tagName = element.tagName
-		return tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA'
-	}
-
-	const moveMap = {
-		ArrowUp: { row: -1, col: 0 },
-		ArrowDown: { row: 1, col: 0 },
-		ArrowLeft: { row: 0, col: -1 },
-		ArrowRight: { row: 0, col: 1 },
-		w: { row: -1, col: 0 },
-		s: { row: 1, col: 0 },
-		a: { row: 0, col: -1 },
-		d: { row: 0, col: 1 },
-		W: { row: -1, col: 0 },
-		S: { row: 1, col: 0 },
-		A: { row: 0, col: -1 },
-		D: { row: 0, col: 1 }
-	} as const
-
-	type MoveKey = keyof typeof moveMap
 
 	let puzzle: Puzzle = defaultPuzzle
 	let lastPuzzle: Puzzle = defaultPuzzle
@@ -454,44 +422,17 @@
 		cursor = { row: nextRow, col: nextCol }
 	}
 
-	const handleKeydown = (event: KeyboardEvent) => {
-		void focusBoard()
-		const keyLower = event.key.toLowerCase()
-		if (keyLower === 'z' && event.shiftKey) {
-			event.preventDefault()
-			redoMove()
-			return
-		}
-		if (keyLower === 'z') {
-			event.preventDefault()
-			undoMove()
-			return
-		}
-		const key = event.key as MoveKey
-		if (moveMap[key]) {
-			event.preventDefault()
-			const move = moveMap[key]
-			focusCell(cursor.row + move.row, cursor.col + move.col)
-			return
-		}
-
-		if (event.key === 'Enter' || event.key.toLowerCase() === 'f' || event.key.toLowerCase() === 'c') {
-			event.preventDefault()
-			toggleFill(cursor.row, cursor.col)
-			return
-		}
-
-		if (event.key === ' ' || event.key === 'Spacebar' || event.key === "'") {
-			event.preventDefault()
-			togglePencil(cursor.row, cursor.col)
-			return
-		}
-
-		if (event.key.toLowerCase() === 'x' || event.key === '/') {
-			event.preventDefault()
-			toggleCross(cursor.row, cursor.col)
-		}
-	}
+	const handleKeydown = (event: KeyboardEvent) =>
+		handleKeydownControl(event, {
+			focusBoard,
+			undoMove,
+			redoMove,
+			focusCell,
+			toggleFill,
+			togglePencil,
+			toggleCross,
+			getCursor: () => cursor
+		})
 
 	const handleCellClick = (event: MouseEvent, row: number, col: number) => {
 		focusCell(row, col)
@@ -570,13 +511,14 @@
 			if (shouldSkipGlobalKey(event.target)) {
 				return
 			}
-			const key = event.key as MoveKey
-			if (moveMap[key]) {
-				handleKeydown(event)
-				return
-			}
-			const lower = event.key.toLowerCase()
-			if (lower === 'z' || lower === 'x' || event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+			if (
+				getMoveDelta(event.key) ||
+				isUndoKey(event) ||
+				isRedoKey(event) ||
+				isFillKey(event) ||
+				isPencilKey(event) ||
+				isCrossKey(event)
+			) {
 				handleKeydown(event)
 			}
 		}
