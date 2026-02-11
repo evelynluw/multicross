@@ -628,7 +628,7 @@
 
 	<section class="generator-panel">
 		<div class="generator-toolbar">
-			<label class="size-picker">
+			<label class="dropdown-board-size size-picker">
 				<span>Board size</span>
 				<select
 					bind:value={selectedSize}
@@ -645,7 +645,7 @@
 					{/each}
 				</select>
 			</label>
-			<label class="size-picker">
+			<label class="dropdown-board-scale size-picker">
 				<span>Cell scale</span>
 				<select bind:value={boardScale} aria-label="Select board scale">
 					{#each boardScaleOptions as option}
@@ -653,7 +653,7 @@
 					{/each}
 				</select>
 			</label>
-			<label class="size-picker">
+			<label class="dropdown-clue-hints size-picker">
 				<span>
 					Clue hints
 					<span
