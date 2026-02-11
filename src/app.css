@@ -612,8 +612,8 @@ button:active {
 }
 
 .cell.filled {
-  background: linear-gradient(135deg, #22d3ee, #6366f1);
-  border-color: rgba(255, 255, 255, 0.6);
+  background: #3b82f6;
+  border-color: rgba(255, 255, 255, 0.65);
 }
 
 .cell.pencil {
