@@ -202,6 +202,12 @@
 		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
 	})
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
+	$: hasIncorrectFill = grid.some((row, rIdx) =>
+		row.some((cell, cIdx) => cell === 'filled' && !solutionGrid[rIdx]?.[cIdx])
+	)
+	$: hasMissingFill = solutionGrid.some((row, rIdx) =>
+		row.some((shouldFill, cIdx) => shouldFill && grid[rIdx]?.[cIdx] !== 'filled')
+	)
 	$: mismatchMap = boardComplete || showMistakes
 		? grid.map((row, rIdx) =>
 			row.map((cell, cIdx) => {
@@ -221,9 +227,15 @@
 		)
 		: createErrorMap(dimension)
 	$: hasErrors = mismatchMap.some((row) => row.some(Boolean))
-	$: solved = boardComplete && !hasErrors
-	$: if (boardComplete) {
-		const nextState = hasErrors ? 'mistakes' : 'solved'
+	$: solved = !hasIncorrectFill && !hasMissingFill
+	$: if (solved) {
+		const nextState = 'solved'
+		if (nextState !== lastCompletionState) {
+			completionPopup = nextState
+			lastCompletionState = nextState
+		}
+	} else if (boardComplete && hasErrors) {
+		const nextState = 'mistakes'
 		if (nextState !== lastCompletionState) {
 			completionPopup = nextState
 			lastCompletionState = nextState
