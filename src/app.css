@@ -642,7 +642,7 @@ button:active {
 @media (max-width: 900px) {
   .puzzle-shell {
     grid-template-columns: minmax(90px, 32%) auto;
-  
+  }
 }
 
 @media (max-width: 640px) {
