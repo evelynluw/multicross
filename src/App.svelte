@@ -120,6 +120,8 @@
 	let grid = createGrid(puzzle.size)
 	let cursor = { row: 0, col: 0 }
 	let solved = false
+	let completionPopup: 'solved' | 'mistakes' | null = null
+	let lastCompletionState: 'solved' | 'mistakes' | null = null
 	let boardElement: HTMLDivElement | null = null
 	let selectedSize = puzzle.size
 	let generating = false
@@ -202,11 +204,16 @@
 		: createErrorMap(dimension)
 	$: hasErrors = mismatchMap.some((row) => row.some(Boolean))
 	$: solved = boardComplete && !hasErrors
-	$: statusText = solved
-		? 'Puzzle solved! Every filled cell satisfies the clues.'
-		: boardComplete && hasErrors
-			? 'Check the highlighted cells—they contain mistakes.'
-			: 'Match the edge clues without guessing.'
+	$: if (boardComplete) {
+		const nextState = hasErrors ? 'mistakes' : 'solved'
+		if (nextState !== lastCompletionState) {
+			completionPopup = nextState
+			lastCompletionState = nextState
+		}
+	} else {
+		completionPopup = null
+		lastCompletionState = null
+	}
 	$: hasGenerationLogs = Boolean(progressMessage) || progressAttempt > 0 || workerStatuses.length > 0
 	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
 		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
@@ -474,6 +481,8 @@
 	const resetBoard = () => {
 		grid = createGrid(dimension)
 		cursor = { row: 0, col: 0 }
+		completionPopup = null
+		lastCompletionState = null
 		void focusBoard()
 	}
 
@@ -606,6 +615,8 @@
 		selectedSize = next.size
 		grid = createGrid(next.size)
 		cursor = { row: 0, col: 0 }
+		completionPopup = null
+		lastCompletionState = null
 		void focusBoard()
 	}
 
@@ -647,7 +658,6 @@
 		<div class="hero-header">
 			<div class="hero-text">
 				<h1>Picross Studio</h1>
-				<p>{statusText}</p>
 			</div>
 			<button class="theme-toggle" type="button" on:click={toggleTheme} aria-pressed={theme === 'dark'}>
 				<span class="theme-toggle__icon" aria-hidden="true">{theme === 'dark' ? '🌙' : '☀️'}</span>
@@ -682,6 +692,19 @@
 			</label>
 		</div>
 	</section>
+
+	{#if completionPopup}
+		<div class="completion-popup" role="status" aria-live="polite">
+			<span>
+				{completionPopup === 'solved'
+					? 'Congratulations! You have completed the puzzle.'
+					: 'You have mistakes!'}
+			</span>
+			<button type="button" class="popup-dismiss" on:click={() => (completionPopup = null)}>
+				Dismiss
+			</button>
+		</div>
+	{/if}
 
 	<section class="generator-panel">
 		<div class="generator-toolbar">
@@ -748,6 +771,11 @@
 		{/if}
 	</section>
 
+	{#if boardComplete && hasErrors}
+		<div class="completion-banner completion-banner--error">You have mistakes!</div>
+	{:else if solved}
+		<div class="completion-banner">Congratulations! You have completed the puzzle.</div>
+	{/if}
 	<section class="puzzle-shell" style={`--dimension: ${dimension}; --cell-size: ${cellSize}; --cell-gap: ${cellGap};`}>
 		<div class="puzzle-meta">
 			<span>{puzzle.name}</span>
