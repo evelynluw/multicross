@@ -1,8 +1,7 @@
-1. When user completes, show a pop up. When there are incorrect blocks, display: "you have mistakes!" When user completes correctly, display: "Congratulations! You have completed the puzzle". Don't display the current banner "Puzzle solved! Every filled cell satisfies the clues" under the title - display "Congratulations" before the puzzle board widget, which should go away when user generates another puzzle.
-2. Add a player timer that shows how long user took to finish puzzle
-3. Add state management, so that user can undo and redo. Undo with 'z' key, redo with 'x' key
-4. Also map WASD to arrow keys to navigate blocks
-5. Add "check mistakes" button which should highlight blocks that have mistakes
-6. Completes the game when user has inputed all the filled blocks, and don't have any blocks that should be blank that are filled. = user doesn't need to fill in all the cross outed blocks to complete the game
-7. Update UI, don't use blue gradient for each block, just use a single blue color
-8. Also make the currently selected block border thicker. 
+1. use x and c for controls
+2. cpu usage on firefox or edge super high - workers didn't get killed after we find a puzzle? must fix
+3. worker spawn is not consistent?
+4. clue dimming is too aggressive
+usually hints don't grey out until they're surrounded with x; or it has multiple possibilities
+5. controller support
+6. consecutive filling when holding fill + arrow or cross + arrow
