@@ -12,7 +12,9 @@
 		{ label: 'Arrow Keys', description: 'Move the focused cell' },
 		{ label: 'Enter', description: 'Fill or unfill the focused cell' },
 		{ label: 'Space', description: 'Toggle a pencil mark' },
-		{ label: 'X', description: 'Add or remove a cross mark' }
+		{ label: 'X', description: 'Add or remove a cross mark' },
+		{ label: 'Z', description: 'Undo last move' },
+		{ label: 'Shift + Z', description: 'Redo last move' }
 	]
 
 	const mouseControls = [
@@ -162,6 +164,9 @@
 	let totalAttempts = 0
 	let workerStatuses: Array<{ index: number; attempts: number; elapsed: number; message: string }> = []
 	let showGenerationLogs = true
+	let undoStack: CellState[][][] = []
+	let redoStack: CellState[][][] = []
+	const maxHistory = 200
 
 	const STORAGE_KEYS = {
 		theme: 'picross:theme',
@@ -446,10 +451,54 @@
 		applyTheme(theme === 'dark' ? 'light' : 'dark')
 	}
 
+	const cloneGrid = (source: CellState[][]) => source.map((row) => [...row])
+
+	const pushUndoState = () => {
+		undoStack = [...undoStack, cloneGrid(grid)]
+		if (undoStack.length > maxHistory) {
+			undoStack = undoStack.slice(undoStack.length - maxHistory)
+		}
+		redoStack = []
+	}
+
+	const clearHistory = () => {
+		undoStack = []
+		redoStack = []
+	}
+
+	const undoMove = () => {
+		if (!undoStack.length) {
+			return
+		}
+		const previous = undoStack[undoStack.length - 1]
+		undoStack = undoStack.slice(0, -1)
+		redoStack = [...redoStack, cloneGrid(grid)]
+		grid = cloneGrid(previous)
+	}
+
+	const redoMove = () => {
+		if (!redoStack.length) {
+			return
+		}
+		const next = redoStack[redoStack.length - 1]
+		redoStack = redoStack.slice(0, -1)
+		undoStack = [...undoStack, cloneGrid(grid)]
+		grid = cloneGrid(next)
+	}
+
 	const mutateCell = (row: number, col: number, transformer: (current: CellState) => CellState) => {
+		const current = grid[row]?.[col]
+		if (current === undefined) {
+			return
+		}
+		const next = transformer(current)
+		if (next === current) {
+			return
+		}
+		pushUndoState()
 		grid = grid.map((cells, rIdx) =>
 			rIdx === row
-				? cells.map((cell, cIdx) => (cIdx === col ? transformer(cell) : cell))
+				? cells.map((cell, cIdx) => (cIdx === col ? next : cell))
 				: cells
 		)
 	}
@@ -472,6 +521,17 @@
 
 	const handleKeydown = (event: KeyboardEvent) => {
 		void focusBoard()
+		const keyLower = event.key.toLowerCase()
+		if (keyLower === 'z' && event.shiftKey) {
+			event.preventDefault()
+			redoMove()
+			return
+		}
+		if (keyLower === 'z') {
+			event.preventDefault()
+			undoMove()
+			return
+		}
 		const key = event.key as MoveKey
 		if (moveMap[key]) {
 			event.preventDefault()
@@ -520,6 +580,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		clearHistory()
 		startGameTimer()
 		void focusBoard()
 	}
@@ -657,6 +718,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		clearHistory()
 		startGameTimer()
 		void focusBoard()
 	}
