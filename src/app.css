@@ -361,6 +361,21 @@ button:active {
   color: var(--text-muted);
 }
 
+.hint-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--select-border);
+  color: var(--text-primary);
+  background: var(--select-bg);
+  font-size: 0.7rem;
+  cursor: help;
+}
+
 .size-picker select {
   appearance: none;
   border-radius: 0.85rem;

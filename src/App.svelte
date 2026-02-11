@@ -9,6 +9,7 @@
 	type Theme = 'dark' | 'light'
 	type BoardScale = 'small' | 'medium' | 'large'
 	type CellError = 'missing' | 'overfill'
+	type ClueHintMode = 'aggressive' | 'medium' | 'mild'
 
 	const keyboardControls = [
 		{ label: 'Arrow Keys / WASD', description: 'Move the focused cell' },
@@ -32,6 +33,11 @@
 		medium: 'Medium',
 		large: 'Large'
 	}
+	const clueHintOptions: Array<{ value: ClueHintMode; label: string }> = [
+		{ value: 'aggressive', label: 'Aggressive' },
+		{ value: 'medium', label: 'Medium' },
+		{ value: 'mild', label: 'Mild' }
+	]
 
 	const createGrid = (size: number): CellState[][] =>
 		Array.from({ length: size }, () => Array<CellState>(size).fill('blank'))
@@ -39,6 +45,7 @@
 	const createErrorMap = (size: number): (CellError | null)[][] =>
 		Array.from({ length: size }, () => Array<CellError | null>(size).fill(null))
 
+	// A contiguous run used for clue/hint evaluation.
 	type Run = { start: number; end: number; length: number }
 
 	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
@@ -57,6 +64,7 @@
 		return indices
 	}
 
+	// Builds solution runs from a boolean solution line.
 	const computeRuns = (line: boolean[]): Run[] => {
 		const runs: Run[] = []
 		let start = -1
@@ -74,6 +82,65 @@
 		return runs
 	}
 
+	// Builds player-filled runs and marks if they are closed by crosses or borders.
+	const computeFilledRuns = (line: CellState[]) => {
+		const runs: Array<Run & { closed: boolean }> = []
+		let start = -1
+		for (let idx = 0; idx <= line.length; idx += 1) {
+			const value = line[idx] === 'filled'
+			if (value && start === -1) {
+				start = idx
+			}
+			if ((!value || idx === line.length) && start !== -1) {
+				const end = idx - 1
+				const left = start === 0 || line[start - 1] === 'crossed'
+				const right = end === line.length - 1 || line[end + 1] === 'crossed'
+				runs.push({ start, end, length: end - start + 1, closed: left && right })
+				start = -1
+			}
+		}
+		return runs
+	}
+
+	// Determines which clues should dim based on the current hint mode.
+	const computeClueSatisfaction = (
+		clues: number[],
+		line: CellState[],
+		solutionLine: boolean[]
+	): boolean[] => {
+		if (!clues.length) {
+			return []
+		}
+		if (clueHintMode === 'mild') {
+			// Mild: only dim when the entire line is solved.
+			const lineSolved = clues.every((clue) => clue > 0) &&
+				!line.some((cell, idx) => cell === 'filled' && !solutionLine[idx]) &&
+				solutionLine.every((shouldFill, idx) => !shouldFill || line[idx] === 'filled')
+			return clues.map(() => lineSolved)
+		}
+		if (clueHintMode === 'aggressive') {
+			// Aggressive: dim a clue as soon as its solution run is satisfied.
+			const solutionRuns = computeRuns(solutionLine)
+			return solutionRuns.map((run) => isRunSatisfied(line, solutionLine, run))
+		}
+		// Medium: dim closed runs only if the clue length is non-ambiguous.
+		const closedRuns = computeFilledRuns(line).filter((run) => run.closed)
+		if (!closedRuns.length) {
+			return clues.map(() => false)
+		}
+		const clueCounts = clues.reduce<Record<number, number>>((acc, clue) => {
+			acc[clue] = (acc[clue] ?? 0) + 1
+			return acc
+		}, {})
+		return clues.map((clue) => {
+			if ((clueCounts[clue] ?? 0) > 1) {
+				return false
+			}
+			return closedRuns.some((run) => run.length === clue)
+		})
+	}
+
+	// Checks whether a given solution run is matched by the player's fills.
 	const isRunSatisfied = (line: CellState[], solutionLine: boolean[], run: Run) => {
 		for (let idx = run.start; idx <= run.end; idx += 1) {
 			if (line[idx] !== 'filled') {
@@ -139,6 +206,7 @@
 	let generating = false
 	let generatorError = ''
 	let boardScale: BoardScale = 'medium'
+	let clueHintMode: ClueHintMode = 'mild'
 	let theme: Theme = 'dark'
 	let isHydrated = false
 	let ensureUniqueness = true
@@ -172,24 +240,23 @@
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
 	$: columnHints = puzzle.cols
+	// Boolean solution grid used by hinting and completion rules.
 	$: solutionGrid = puzzle.solution.map((row) => row.map((value) => Boolean(value)))
 	$: focusedCellId = cellId(cursor.row, cursor.col)
 	$: cellSize = computeCellSize(dimension, boardScale)
 	$: cellGap = computeCellGap(dimension)
 	$: separatorIndices = getSeparatorIndices(dimension)
-	$: solutionRowRuns = solutionGrid.map((row) => computeRuns(row))
-	$: solutionColumnRuns = Array.from({ length: dimension }, (_value, col) =>
-		computeRuns(solutionGrid.map((row) => row[col]))
-	)
-	$: rowClueSatisfied = solutionRowRuns.map((runs, rowIdx) => {
+	// Per-row clue dimming state based on selected hint mode.
+	$: rowClueSatisfied = rowHints.map((clues, rowIdx) => {
 		const line = grid[rowIdx] ?? []
 		const solutionLine = solutionGrid[rowIdx] ?? []
-		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
+		return computeClueSatisfaction(clues, line, solutionLine)
 	})
-	$: columnClueSatisfied = solutionColumnRuns.map((runs, colIdx) => {
+	// Per-column clue dimming state based on selected hint mode.
+	$: columnClueSatisfied = columnHints.map((clues, colIdx) => {
 		const line = grid.map((row) => row[colIdx])
 		const solutionLine = solutionGrid.map((row) => row[colIdx])
-		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
+		return computeClueSatisfaction(clues, line, solutionLine)
 	})
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
 	$: hasIncorrectFill = grid.some((row, rIdx) =>
@@ -789,6 +856,25 @@
 				<select bind:value={boardScale} aria-label="Select board scale">
 					{#each boardScaleOptions as option}
 						<option value={option}>{boardScaleLabels[option]}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="size-picker">
+				<span>
+					Clue hints
+					<span
+						class="hint-info"
+						title="Aggressive: dims as soon as a run matches the solution position. 
+            Medium: dims only closed runs (surrounded by X/border) and non-ambiguous lengths. 
+            Mild: dims only when the entire row/column is solved."
+						aria-label="Clue hint modes info"
+					>
+						ⓘ
+					</span>
+				</span>
+				<select bind:value={clueHintMode} aria-label="Select clue hint mode">
+					{#each clueHintOptions as option}
+						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
 			</label>
