@@ -9,10 +9,10 @@
 	type CellError = 'missing' | 'overfill'
 
 	const keyboardControls = [
-		{ label: 'Arrow Keys', description: 'Move the focused cell' },
+		{ label: 'Arrow Keys / WASD', description: 'Move the focused cell' },
 		{ label: 'Enter', description: 'Fill or unfill the focused cell' },
 		{ label: 'Space', description: 'Toggle a pencil mark' },
-		{ label: 'X', description: 'Add or remove a cross mark' },
+		{ label: 'X or /', description: 'Add or remove a cross mark' },
 		{ label: 'Z', description: 'Undo last move' },
 		{ label: 'Shift + Z', description: 'Redo last move' }
 	]
@@ -112,7 +112,15 @@
 		ArrowUp: { row: -1, col: 0 },
 		ArrowDown: { row: 1, col: 0 },
 		ArrowLeft: { row: 0, col: -1 },
-		ArrowRight: { row: 0, col: 1 }
+		ArrowRight: { row: 0, col: 1 },
+		w: { row: -1, col: 0 },
+		s: { row: 1, col: 0 },
+		a: { row: 0, col: -1 },
+		d: { row: 0, col: 1 },
+		W: { row: -1, col: 0 },
+		S: { row: 1, col: 0 },
+		A: { row: 0, col: -1 },
+		D: { row: 0, col: 1 }
 	} as const
 
 	type MoveKey = keyof typeof moveMap
@@ -552,7 +560,7 @@
 			return
 		}
 
-		if (event.key.toLowerCase() === 'x') {
+		if (event.key.toLowerCase() === 'x' || event.key === '/') {
 			event.preventDefault()
 			toggleCross(cursor.row, cursor.col)
 		}
@@ -635,10 +643,14 @@
 				return
 			}
 			const key = event.key as MoveKey
-			if (!moveMap[key]) {
+			if (moveMap[key]) {
+				handleKeydown(event)
 				return
 			}
-			handleKeydown(event)
+			const lower = event.key.toLowerCase()
+			if (lower === 'z' || lower === 'x' || event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+				handleKeydown(event)
+			}
 		}
 
 		window.addEventListener('keydown', handleWindowKeydown)
