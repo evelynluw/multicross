@@ -26,7 +26,7 @@
 	// ==================================================
 	// Configuration
 	// ==================================================
-	const sizeOptions = [5, 10, 15, 20]
+	const sizeOptions = [5, 8, 10, 12, 15, 20]
 	const boardScaleOptions: BoardScale[] = ['small', 'medium', 'large']
 	const boardScaleLabels: Record<BoardScale, string> = {
 		small: 'Small',

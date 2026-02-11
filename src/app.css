@@ -410,11 +410,14 @@ button:active {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 1.5rem;
+  --clue-column: clamp(96px, 24vw, 210px);
+    --clue-gap: clamp(0.6rem, 1.6vw, 1.2rem);
   padding: clamp(1.25rem, 4vw, 1.75rem);
+  padding-right: calc(var(--clue-column) * 0.2 + var(--clue-gap));
   box-shadow: var(--panel-shadow);
   display: grid;
   grid-template-columns: minmax(110px, 28%) auto;
-  column-gap: clamp(0.75rem, 2vw, 1.5rem);
+  column-gap: var(--clue-gap);
   row-gap: clamp(0.75rem, 2vw, 1.25rem);
   align-items: start;
 }
@@ -703,6 +706,7 @@ button:active {
 
 @media (max-width: 900px) {
   .puzzle-shell {
+    --clue-column: clamp(90px, 32vw, 220px);
     grid-template-columns: minmax(90px, 32%) auto;
   }
 }
@@ -715,6 +719,7 @@ button:active {
 
   .puzzle-shell {
     grid-template-columns: 1fr;
+    padding-right: clamp(1.25rem, 4vw, 1.75rem);
   }
 
     .board {
