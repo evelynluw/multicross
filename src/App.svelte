@@ -22,6 +22,9 @@
 	type BoardScale = 'small' | 'medium' | 'large'
 	type CellError = 'missing' | 'overfill'
 
+	// ==================================================
+	// Configuration
+	// ==================================================
 	const sizeOptions = [5, 10, 15, 20]
 	const boardScaleOptions: BoardScale[] = ['small', 'medium', 'large']
 	const boardScaleLabels: Record<BoardScale, string> = {
@@ -35,20 +38,28 @@
 		{ value: 'mild', label: 'Mild' }
 	]
 
+	// ==================================================
+	// Grid helpers
+	// ==================================================
+	// Create an empty grid at the requested size.
 	const createGrid = (size: number): CellState[][] =>
 		Array.from({ length: size }, () => Array<CellState>(size).fill('blank'))
 
+	// Create a blank error map for the grid.
 	const createErrorMap = (size: number): (CellError | null)[][] =>
 		Array.from({ length: size }, () => Array<CellError | null>(size).fill(null))
 
+	// Check whether a cell is a finalized mark.
 	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
 
+	// Build the CSS class list for a cell.
 	const cellClass = (row: number, col: number, state: CellState, error: CellError | null) => {
 		const focusClass = cursor.row === row && cursor.col === col ? 'focused' : ''
 		const errorClass = error ? `error-${error}` : ''
 		return ['cell', state, focusClass, errorClass].filter(Boolean).join(' ')
 	}
 
+	// Generate the separator indices for a given grid size.
 	const getSeparatorIndices = (size: number) => {
 		const indices: number[] = []
 		for (let idx = 5; idx < size; idx += 5) {
@@ -57,7 +68,9 @@
 		return indices
 	}
 
-
+	// ==================================================
+	// State
+	// ==================================================
 	let puzzle: Puzzle = defaultPuzzle
 	let lastPuzzle: Puzzle = defaultPuzzle
 	let grid = createGrid(puzzle.size)
@@ -105,6 +118,9 @@
 		grid: 'picross:grid'
 	}
 
+	// ==================================================
+	// Derived state
+	// ==================================================
 	$: dimension = puzzle.size
 	$: rowHints = puzzle.rows
 	$: columnHints = puzzle.cols
@@ -182,11 +198,16 @@
 		savePuzzleState(puzzle, grid)
 	}
 
+	// ==================================================
+	// Focus & timing helpers
+	// ==================================================
+	// Move focus to the game board element.
 	const focusBoard = async () => {
 		await tick()
 		boardElement?.focus()
 	}
 
+	// Format elapsed time for display.
 	const formatElapsedTime = (value: number) => {
 		const totalSeconds = Math.max(0, Math.floor(value))
 		const minutes = Math.floor(totalSeconds / 60)
@@ -194,6 +215,7 @@
 		return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${value.toFixed(1)}s`
 	}
 
+	// Start the main game timer.
 	const startGameTimer = () => {
 		gameTimerStart = performance.now()
 		gameTimerElapsed = 0
@@ -206,6 +228,7 @@
 		}, 100)
 	}
 
+	// Stop the main game timer.
 	const stopGameTimer = () => {
 		if (gameTimerInterval) {
 			clearInterval(gameTimerInterval)
@@ -217,6 +240,7 @@
 		gameTimerRunning = false
 	}
 
+	// Wait until the next animation frame for UI updates.
 	const waitForNextFrame = () =>
 		new Promise<void>((resolve) => {
 			if (typeof requestAnimationFrame === 'undefined') {
@@ -226,6 +250,7 @@
 			requestAnimationFrame(() => resolve())
 		})
 
+	// Start the generation progress timer.
 	const startProgressTimer = () => {
 		progressStart = performance.now()
 		progressElapsed = 0
@@ -234,6 +259,7 @@
 		}, 100)
 	}
 
+	// Stop the generation progress timer.
 	const stopProgressTimer = () => {
 		if (progressTimer) {
 			clearInterval(progressTimer)
@@ -242,6 +268,10 @@
 		progressElapsed = (performance.now() - progressStart) / 1000
 	}
 
+	// ==================================================
+	// Puzzle generation & workers
+	// ==================================================
+	// Process worker progress and error events.
 	const handleWorkerEvent = (event: WorkerEvent) => {
 		if (event.type === 'progress') {
 			totalAttempts += 1
@@ -265,6 +295,7 @@
 		}
 	}
 
+	// Create or resize the worker pool.
 	const rebuildWorkerPool = (count: number) => {
 		const safeCount = Math.max(1, Math.min(count, maxWorkerCount))
 		workerPoolSize = safeCount
@@ -280,9 +311,12 @@
 		workerPool.setWorkerCount(safeCount)
 	}
 
+	// Clamp a value to the board bounds.
 	const clamp = (value: number) => Math.min(Math.max(value, 0), dimension - 1)
+	// Build the DOM id for a given cell.
 	const cellId = (row: number, col: number) => `cell-${row}-${col}`
 
+	// Compute cell size CSS values from board settings.
 	const computeCellSize = (size: number, scale: BoardScale) => {
 		const base = scale === 'small' ? 28 : scale === 'large' ? 48 : 36
 		const dimensionFactor = size >= 20 ? 0.8 : size >= 15 ? 0.9 : size >= 10 ? 0.95 : 1
@@ -290,8 +324,13 @@
 		return `${px}px`
 	}
 
+	// Compute cell gap CSS values from board size.
 	const computeCellGap = (size: number) => (size >= 15 ? '2px' : size >= 10 ? '3px' : '4px')
 
+	// ==================================================
+	// Theme & persistence
+	// ==================================================
+	// Apply the selected theme to the document.
 	const applyTheme = (next: Theme) => {
 		theme = next
 		if (typeof document !== 'undefined') {
@@ -299,6 +338,7 @@
 		}
 	}
 
+	// Persist the selected theme.
 	const saveTheme = (nextTheme: Theme) => {
 		if (!isHydrated || typeof localStorage === 'undefined') {
 			return
@@ -310,6 +350,7 @@
 		}
 	}
 
+	// Persist the current puzzle and grid state.
 	const savePuzzleState = (nextPuzzle: Puzzle, nextGrid: CellState[][]) => {
 		if (!isHydrated || typeof localStorage === 'undefined') {
 			return
@@ -322,6 +363,7 @@
 		}
 	}
 
+	// Validate a puzzle payload from storage.
 	const isValidPuzzle = (value: unknown): value is Puzzle => {
 		if (!value || typeof value !== 'object') {
 			return false
@@ -336,6 +378,7 @@
 		)
 	}
 
+	// Validate a saved grid payload for a puzzle size.
 	const isValidGrid = (value: unknown, size: number): value is CellState[][] => {
 		if (!Array.isArray(value) || value.length !== size) {
 			return false
@@ -348,12 +391,18 @@
 		)
 	}
 
+	// Toggle the active theme.
 	const toggleTheme = () => {
 		applyTheme(theme === 'dark' ? 'light' : 'dark')
 	}
 
+	// ==================================================
+	// Grid history
+	// ==================================================
+	// Clone the grid for undo/redo snapshots.
 	const cloneGrid = (source: CellState[][]) => source.map((row) => [...row])
 
+	// Push the current grid into the undo stack.
 	const pushUndoState = () => {
 		undoStack = [...undoStack, cloneGrid(grid)]
 		if (undoStack.length > maxHistory) {
@@ -362,11 +411,13 @@
 		redoStack = []
 	}
 
+	// Clear the undo/redo history.
 	const clearHistory = () => {
 		undoStack = []
 		redoStack = []
 	}
 
+	// Restore the previous grid state.
 	const undoMove = () => {
 		if (!undoStack.length) {
 			return
@@ -377,6 +428,7 @@
 		grid = cloneGrid(previous)
 	}
 
+	// Restore the next grid state.
 	const redoMove = () => {
 		if (!redoStack.length) {
 			return
@@ -387,6 +439,10 @@
 		grid = cloneGrid(next)
 	}
 
+	// ==================================================
+	// Grid mutation helpers
+	// ==================================================
+	// Apply a cell transform and capture history.
 	const mutateCell = (row: number, col: number, transformer: (current: CellState) => CellState) => {
 		const current = grid[row]?.[col]
 		if (current === undefined) {
@@ -404,24 +460,32 @@
 		)
 	}
 
+	// Toggle a fill mark at the cell.
 	const toggleFill = (row: number, col: number) => {
 		mutateCell(row, col, (current) => (current === 'filled' ? 'blank' : 'filled'))
 	}
 
+	// Toggle a pencil mark at the cell.
 	const togglePencil = (row: number, col: number) => {
 		mutateCell(row, col, (current) => (current === 'pencil' ? 'blank' : 'pencil'))
 	}
 
+	// Toggle a cross mark at the cell.
 	const toggleCross = (row: number, col: number) => {
 		mutateCell(row, col, (current) => (current === 'crossed' ? 'blank' : 'crossed'))
 	}
 
+	// ==================================================
+	// Controls & input handlers
+	// ==================================================
+	// Move the cursor and wrap within the board.
 	const focusCell = (row: number, col: number) => {
 		const nextRow = (row + dimension) % dimension
 		const nextCol = (col + dimension) % dimension
 		cursor = { row: nextRow, col: nextCol }
 	}
 
+	// Handle keyboard input for board actions.
 	const handleKeydown = (event: KeyboardEvent) =>
 		handleKeydownControl(event, {
 			focusBoard,
@@ -434,6 +498,7 @@
 			getCursor: () => cursor
 		})
 
+	// Handle left click interactions.
 	const handleCellClick = (event: MouseEvent, row: number, col: number) => {
 		focusCell(row, col)
 		if (event.shiftKey || event.metaKey || event.altKey) {
@@ -444,6 +509,7 @@
 		void focusBoard()
 	}
 
+	// Handle right click interactions.
 	const handleCellContextMenu = (event: MouseEvent, row: number, col: number) => {
 		event.preventDefault()
 		focusCell(row, col)
@@ -451,6 +517,10 @@
 		void focusBoard()
 	}
 
+	// ==================================================
+	// Game lifecycle
+	// ==================================================
+	// Reset the board to an empty grid.
 	const resetBoard = () => {
 		grid = createGrid(dimension)
 		cursor = { row: 0, col: 0 }
@@ -462,6 +532,7 @@
 		void focusBoard()
 	}
 
+	// Initialize persisted state, workers, and listeners.
 	onMount(() => {
 		if (typeof window === 'undefined') {
 			return
@@ -535,10 +606,14 @@
 		}
 	})
 
+	// ==================================================
+	// Puzzle generation
+	// ==================================================
 	$: if (!generating && workerCount !== workerPoolSize) {
 		rebuildWorkerPool(workerCount)
 	}
 
+	// Create a puzzle using the worker pool or fallback generator.
 	const generatePuzzleAsync = (size: number) => {
 		if (workerPool && workerPoolSize > 0) {
 			const maxAttemptsPerWorker = 300
@@ -559,6 +634,7 @@
 		return Promise.resolve(generateRandomPuzzle(size, 600, ensureUniqueness))
 	}
 
+	// Cancel an in-flight puzzle generation.
 	const cancelGeneration = () => {
 		if (!generating) {
 			return
@@ -570,6 +646,7 @@
 		stopProgressTimer()
 	}
 
+	// Load a new puzzle and reset board state.
 	const loadPuzzle = (next: Puzzle) => {
 		lastPuzzle = puzzle
 		puzzle = next
@@ -584,6 +661,7 @@
 		void focusBoard()
 	}
 
+	// Build a puzzle for the selected size with progress tracking.
 	const buildPuzzleForSize = async (size: number) => {
 		if (generating) {
 			return
@@ -605,6 +683,7 @@
 		}
 	}
 
+	// Handle size selection changes.
 	const handleSizeChange = async (event: Event) => {
 		const target = event.currentTarget as HTMLSelectElement
 		const value = Number(target.value)
@@ -612,10 +691,12 @@
 		await buildPuzzleForSize(value)
 	}
 
+	// Handle the "Generate another" click.
 	const handleGenerateClick = async () => {
 		await buildPuzzleForSize(selectedSize)
 	}
 
+	// Toggle mistake highlighting.
 	const toggleMistakes = () => {
 		showMistakes = !showMistakes
 	}
