@@ -12,7 +12,7 @@
 
 	const keyboardControls = [
 		{ label: 'Arrow Keys / WASD', description: 'Move the focused cell' },
-		{ label: 'Enter or F', description: 'Fill or unfill the focused cell' },
+		{ label: 'Enter or F or C', description: 'Fill or unfill the focused cell' },
 		{ label: 'Space or  \' ', description: 'Toggle a pencil mark' },
 		{ label: 'X or /', description: 'Add or remove a cross mark' },
 		{ label: 'Z', description: 'Undo last move' },
@@ -508,7 +508,7 @@
 			return
 		}
 
-		if (event.key === 'Enter' || event.key.toLowerCase() === 'f') {
+		if (event.key === 'Enter' || event.key.toLowerCase() === 'f' || event.key.toLowerCase() === 'c') {
 			event.preventDefault()
 			toggleFill(cursor.row, cursor.col)
 			return
