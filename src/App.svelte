@@ -3,6 +3,7 @@
 	import { defaultPuzzle, type Puzzle } from './lib/puzzle'
 	import { computeClueSatisfaction, type CellState, type ClueHintMode } from './lib/clueHinting'
 	import {
+		createConsecutiveActionHandler,
 		getMoveDelta,
 		handleKeydown as handleKeydownControl,
 		isCrossKey,
@@ -408,8 +409,22 @@
 		cursor = { row: nextRow, col: nextCol }
 	}
 
+	// Create the consecutive action handler for held action + arrows.
+	const consecutiveActions = createConsecutiveActionHandler({
+		getCursor: () => cursor,
+		focusCell,
+		toggleFill,
+		togglePencil,
+		toggleCross,
+		getDimension: () => dimension,
+		cellId
+	})
+
 	// Handle keyboard input for board actions.
-	const handleKeydown = (event: KeyboardEvent) =>
+	const handleKeydown = (event: KeyboardEvent) => {
+		if (consecutiveActions.handleKeydown(event)) {
+			return
+		}
 		handleKeydownControl(event, {
 			focusBoard,
 			undoMove,
@@ -420,6 +435,7 @@
 			toggleCross,
 			getCursor: () => cursor
 		})
+	}
 
 	// Handle left click interactions.
 	const handleCellClick = (event: MouseEvent, row: number, col: number) => {
@@ -513,13 +529,25 @@
 			}
 		}
 
+		const handleWindowKeyup = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) {
+				return
+			}
+			if (shouldSkipGlobalKey(event.target)) {
+				return
+			}
+			consecutiveActions.handleKeyup(event)
+		}
+
 		window.addEventListener('keydown', handleWindowKeydown)
+		window.addEventListener('keyup', handleWindowKeyup)
 		void focusBoard()
 		isHydrated = true
 		startGameTimer()
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
+			window.removeEventListener('keyup', handleWindowKeyup)
 			generation.dispose()
 			stopGameTimer()
 		}
