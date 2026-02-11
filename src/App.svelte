@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
-	import ControlsLegend from './lib/Counter.svelte'
 	import { defaultPuzzle, generateRandomPuzzle, type Puzzle } from './lib/puzzle'
+	import { PuzzleWorkerPool, type WorkerEvent } from './lib/puzzleWorkerPool'
+	import PuzzlePanel from './lib/components/PuzzlePanel.svelte'
+	import ControlsPanel from './lib/components/ControlsPanel.svelte'
 
 	type CellState = 'blank' | 'filled' | 'pencil' | 'crossed'
 	type Theme = 'dark' | 'light'
@@ -144,22 +146,10 @@
 	let hasErrors = false
 	let showMistakes = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
-	let workerPool: Worker[] = []
+	let workerPool: PuzzleWorkerPool | null = null
 	let workerPoolSize = 0
 	let maxWorkerCount = 4
 	let workerCount = 4
-	let workerGenerationMap = new Map<number, number>()
-	let workerById = new Map<number, Worker>()
-	let pendingGeneration: {
-		resolve: (puzzle: Puzzle) => void
-		reject: (reason?: string) => void
-		remaining: number
-		generationId: number
-		maxAttemptsPerWorker: number
-	} | null = null
-	let activeWorkerIds: number[] = []
-	let generationId = 0
-	let workerRequestId = 0
 	let progressAttempt = 0
 	let progressMaxAttempts = 0
 	let progressElapsed = 0
@@ -317,87 +307,42 @@
 		progressElapsed = (performance.now() - progressStart) / 1000
 	}
 
-	const resetGenerationState = () => {
-		pendingGeneration = null
-		activeWorkerIds = []
-		workerGenerationMap.clear()
-		workerById.clear()
-	}
-
-	const cancelActiveWorkers = () => {
-		for (const id of activeWorkerIds) {
-			const worker = workerById.get(id)
-			if (worker) {
-				worker.postMessage({ id, cancel: true })
-			}
-		}
-		resetGenerationState()
-	}
-
-	const handleWorkerMessage = (event: MessageEvent) => {
-		const data = event.data as
-			| { id: number; type: 'progress'; attempt: number; maxAttempts: number; elapsed: number; workerIndex: number }
-			| { id: number; type: 'result'; ok: boolean; puzzle?: Puzzle; message?: string }
-		if (!pendingGeneration) {
-			return
-		}
-		const workerGen = workerGenerationMap.get(data.id)
-		if (workerGen !== pendingGeneration.generationId) {
-			return
-		}
-		if (data.type === 'progress') {
+	const handleWorkerEvent = (event: WorkerEvent) => {
+		if (event.type === 'progress') {
 			totalAttempts += 1
 			progressAttempt = totalAttempts
-			progressMaxAttempts = pendingGeneration.maxAttemptsPerWorker * workerPoolSize
+			progressMaxAttempts = event.maxAttempts * workerPoolSize
 			progressMessage = `Attempting to find a puzzle: ${Math.max(0, totalAttempts - 1)} failed checks across ${workerPoolSize} workers…`
 			workerStatuses = workerStatuses.map((status) =>
-				status.index === data.workerIndex
+				status.index === event.workerIndex
 					? {
 						...status,
-						attempts: data.attempt,
-						elapsed: data.elapsed,
-						message: `Worker ${data.workerIndex + 1}: attempt ${data.attempt}/${data.maxAttempts}`
+						attempts: event.attempt,
+						elapsed: event.elapsed,
+						message: `Worker ${event.workerIndex + 1}: attempt ${event.attempt}/${event.maxAttempts}`
 					}
 					: status
 			)
 			return
 		}
-		if (data.type === 'result' && data.ok && data.puzzle) {
-			pendingGeneration.resolve(data.puzzle)
-			cancelActiveWorkers()
-			return
-		}
-		pendingGeneration.remaining -= 1
-		if (pendingGeneration.remaining <= 0) {
-			pendingGeneration.reject(data.message ?? 'Unable to build puzzle.')
-			resetGenerationState()
+		if (event.type === 'error') {
+			generatorError = event.message
 		}
 	}
 
 	const rebuildWorkerPool = (count: number) => {
-		workerPool.forEach((worker) => worker.terminate())
-		workerPool = []
-		workerPoolSize = 0
-		if (typeof Worker === 'undefined') {
-			return
-		}
 		const safeCount = Math.max(1, Math.min(count, maxWorkerCount))
 		workerPoolSize = safeCount
-		workerPool = Array.from({ length: safeCount }, () => {
-			const worker = new Worker(new URL('./lib/puzzleWorker.ts', import.meta.url), { type: 'module' })
-			worker.addEventListener('message', handleWorkerMessage)
-			worker.addEventListener('error', () => {
-				if (!pendingGeneration) {
-					return
-				}
-				pendingGeneration.remaining -= 1
-				if (pendingGeneration.remaining <= 0) {
-					pendingGeneration.reject('Puzzle generator worker failed.')
-					resetGenerationState()
-				}
-			})
-			return worker
-		})
+		if (typeof Worker === 'undefined') {
+			workerPool = null
+			workerPoolSize = 0
+			return
+		}
+		if (!workerPool) {
+			workerPool = new PuzzleWorkerPool(safeCount, handleWorkerEvent)
+			return
+		}
+		workerPool.setWorkerCount(safeCount)
 	}
 
 	const clamp = (value: number) => Math.min(Math.max(value, 0), dimension - 1)
@@ -676,52 +621,31 @@
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
-			workerPool.forEach((worker) => worker.terminate())
+			workerPool?.dispose()
 			stopGameTimer()
 		}
 	})
 
-	$: if (!generating && workerPoolSize && workerCount !== workerPoolSize) {
+	$: if (!generating && workerCount !== workerPoolSize) {
 		rebuildWorkerPool(workerCount)
 	}
 
 	const generatePuzzleAsync = (size: number) => {
-		if (workerPool.length > 0) {
-			return new Promise<Puzzle>((resolve, reject) => {
-				if (pendingGeneration) {
-					reject('Puzzle generation already in progress.')
-					return
-				}
-				generationId += 1
-				const maxAttemptsPerWorker = 300
-				const requireUnique = ensureUniqueness
-				pendingGeneration = {
-					resolve,
-					reject,
-					remaining: workerPool.length,
-					generationId,
-					maxAttemptsPerWorker
-				}
-				totalAttempts = 0
-				progressAttempt = 0
-				progressMaxAttempts = workerPool.length * maxAttemptsPerWorker
-				progressElapsed = 0
-				progressMessage = 'Starting parallel puzzle search…'
-				activeWorkerIds = []
-				workerStatuses = workerPool.map((_worker, index) => ({
-					index,
-					attempts: 0,
-					elapsed: 0,
-					message: `Worker ${index + 1}: starting…`
-				}))
-				workerPool.forEach((worker, index) => {
-					const id = workerRequestId++
-					workerGenerationMap.set(id, generationId)
-					workerById.set(id, worker)
-					activeWorkerIds.push(id)
-					worker.postMessage({ id, size, maxAttempts: maxAttemptsPerWorker, workerIndex: index, requireUnique })
-				})
-			})
+		if (workerPool && workerPoolSize > 0) {
+			const maxAttemptsPerWorker = 300
+			const requireUnique = ensureUniqueness
+			totalAttempts = 0
+			progressAttempt = 0
+			progressMaxAttempts = workerPoolSize * maxAttemptsPerWorker
+			progressElapsed = 0
+			progressMessage = 'Starting parallel puzzle search…'
+			workerStatuses = Array.from({ length: workerPoolSize }, (_worker, index) => ({
+				index,
+				attempts: 0,
+				elapsed: 0,
+				message: `Worker ${index + 1}: starting…`
+			}))
+			return workerPool.generate(size, maxAttemptsPerWorker, requireUnique)
 		}
 		return Promise.resolve(generateRandomPuzzle(size, 600, ensureUniqueness))
 	}
@@ -730,12 +654,11 @@
 		if (!generating) {
 			return
 		}
-		cancelActiveWorkers()
+		workerPool?.cancel()
 		loadPuzzle(lastPuzzle)
 		generatorError = ''
 		generating = false
 		stopProgressTimer()
-		resetGenerationState()
 	}
 
 	const loadPuzzle = (next: Puzzle) => {
@@ -907,80 +830,35 @@
 		{/if}
 	</section>
 
-	{#if boardComplete && hasErrors}
-		<div class="completion-banner completion-banner--error">You have mistakes!</div>
-	{:else if solved}
-		<div class="completion-banner">Congratulations! You have completed the puzzle.</div>
-	{/if}
-	<section class="puzzle-shell" style={`--dimension: ${dimension}; --cell-size: ${cellSize}; --cell-gap: ${cellGap};`}>
-		<div class="puzzle-meta">
-			<span>{puzzle.name}</span>
-			<span>{dimension} × {dimension}</span>
-			<button class="mistakes-toggle" type="button" on:click={toggleMistakes} aria-pressed={showMistakes}>
-				{showMistakes ? 'Hide mistakes' : 'Check mistakes'}
-			</button>
-			<span class="puzzle-timer">Time: {formatElapsedTime(gameTimerElapsed)}</span>
-		</div>
-		<div class="column-hints" aria-hidden="true">
-			{#each columnHints as column, col}
-				<div class={`column-hint ${cursor.col === col ? 'highlight' : ''}`}>
-					{#each column as number, clueIdx}
-						<span class={columnClueSatisfied[col]?.[clueIdx] ? 'clue-satisfied' : ''}>{number}</span>
-					{/each}
-				</div>
-			{/each}
-		</div>
-		<div class="row-hints" aria-hidden="true">
-			{#each rowHints as row, rowIdx}
-				<div class={`row-hint ${cursor.row === rowIdx ? 'highlight' : ''}`}>
-					{#each row as number, clueIdx}
-						<span class={rowClueSatisfied[rowIdx]?.[clueIdx] ? 'clue-satisfied' : ''}>{number}</span>
-					{/each}
-				</div>
-			{/each}
-		</div>
-		<div
-			class={`board ${solved ? 'board-solved' : ''} ${boardComplete && hasErrors ? 'board-error' : ''} ${generating ? 'board-loading' : ''}`.trim()}
-			tabindex="0"
-			role="grid"
-			aria-label={`Picross board ${dimension} by ${dimension}`}
-			aria-activedescendant={focusedCellId}
-			on:keydown={handleKeydown}
-			on:mousedown={() => void focusBoard()}
-			bind:this={boardElement}
-		>
-			<div class="board-grid">
-				{#each grid as row, rowIdx}
-					{#each row as cell, colIdx}
-						<button
-							type="button"
-							class={cellClass(rowIdx, colIdx, cell, mismatchMap?.[rowIdx]?.[colIdx] ?? null)}
-							data-state={cell}
-							data-error={mismatchMap?.[rowIdx]?.[colIdx] ?? undefined}
-							aria-label={`Cell ${rowIdx + 1}, ${colIdx + 1}`}
-							aria-pressed={cell === 'filled'}
-							tabindex="-1"
-							id={cellId(rowIdx, colIdx)}
-							on:click={(event) => handleCellClick(event, rowIdx, colIdx)}
-							on:contextmenu={(event) => handleCellContextMenu(event, rowIdx, colIdx)}
-						>
-						</button>
-					{/each}
-				{/each}
-				{#each separatorIndices as index}
-					<div class="block-separator block-separator-row" style={`--separator-index: ${index};`}></div>
-					<div class="block-separator block-separator-col" style={`--separator-index: ${index};`}></div>
-				{/each}
-				<div class="focus-ring" aria-hidden="true" style={focusRingStyle}></div>
-			</div>
-		</div>
-	</section>
+	<PuzzlePanel
+		puzzleName={puzzle.name}
+		dimension={dimension}
+		cellSize={cellSize}
+		cellGap={cellGap}
+		solved={solved}
+		boardComplete={boardComplete}
+		hasErrors={hasErrors}
+		generating={generating}
+		rowHints={rowHints}
+		columnHints={columnHints}
+		rowClueSatisfied={rowClueSatisfied}
+		columnClueSatisfied={columnClueSatisfied}
+		cursor={cursor}
+		grid={grid}
+		mismatchMap={mismatchMap}
+		separatorIndices={separatorIndices}
+		focusedCellId={focusedCellId}
+		focusRingStyle={focusRingStyle}
+		bind:boardElement
+		showMistakes={showMistakes}
+		timerLabel={formatElapsedTime(gameTimerElapsed)}
+		cellClass={cellClass}
+		onKeydown={handleKeydown}
+		onMouseDown={() => void focusBoard()}
+		onCellClick={handleCellClick}
+		onCellContextMenu={handleCellContextMenu}
+		onToggleMistakes={toggleMistakes}
+	/>
 
-	<section class="controls-panel">
-		<h2>Controls</h2>
-		<div class="controls-grid">
-			<ControlsLegend title="Keyboard" controls={keyboardControls} />
-			<ControlsLegend title="Mouse" controls={mouseControls} />
-		</div>
-	</section>
+	<ControlsPanel keyboardControls={keyboardControls} mouseControls={mouseControls} />
 </main>
