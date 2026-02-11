@@ -122,6 +122,10 @@
 	let solved = false
 	let completionPopup: 'solved' | 'mistakes' | null = null
 	let lastCompletionState: 'solved' | 'mistakes' | null = null
+	let gameTimerStart = 0
+	let gameTimerElapsed = 0
+	let gameTimerRunning = false
+	let gameTimerInterval: ReturnType<typeof setInterval> | null = null
 	let boardElement: HTMLDivElement | null = null
 	let selectedSize = puzzle.size
 	let generating = false
@@ -214,6 +218,9 @@
 		completionPopup = null
 		lastCompletionState = null
 	}
+	$: if (solved && gameTimerRunning) {
+		stopGameTimer()
+	}
 	$: hasGenerationLogs = Boolean(progressMessage) || progressAttempt > 0 || workerStatuses.length > 0
 	$: focusRingStyle = `--focus-x: calc(${cursor.col} * (var(--cell-size) + var(--cell-gap)));
 		--focus-y: calc(${cursor.row} * (var(--cell-size) + var(--cell-gap)));`
@@ -227,6 +234,36 @@
 	const focusBoard = async () => {
 		await tick()
 		boardElement?.focus()
+	}
+
+	const formatElapsedTime = (value: number) => {
+		const totalSeconds = Math.max(0, Math.floor(value))
+		const minutes = Math.floor(totalSeconds / 60)
+		const seconds = totalSeconds % 60
+		return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${value.toFixed(1)}s`
+	}
+
+	const startGameTimer = () => {
+		gameTimerStart = performance.now()
+		gameTimerElapsed = 0
+		gameTimerRunning = true
+		if (gameTimerInterval) {
+			clearInterval(gameTimerInterval)
+		}
+		gameTimerInterval = setInterval(() => {
+			gameTimerElapsed = (performance.now() - gameTimerStart) / 1000
+		}, 100)
+	}
+
+	const stopGameTimer = () => {
+		if (gameTimerInterval) {
+			clearInterval(gameTimerInterval)
+			gameTimerInterval = null
+		}
+		if (gameTimerRunning) {
+			gameTimerElapsed = (performance.now() - gameTimerStart) / 1000
+		}
+		gameTimerRunning = false
 	}
 
 	const waitForNextFrame = () =>
@@ -483,6 +520,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		startGameTimer()
 		void focusBoard()
 	}
 
@@ -545,10 +583,12 @@
 		window.addEventListener('keydown', handleWindowKeydown)
 		void focusBoard()
 		isHydrated = true
+		startGameTimer()
 
 		return () => {
 			window.removeEventListener('keydown', handleWindowKeydown)
 			workerPool.forEach((worker) => worker.terminate())
+			stopGameTimer()
 		}
 	})
 
@@ -617,6 +657,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		startGameTimer()
 		void focusBoard()
 	}
 
@@ -780,6 +821,7 @@
 		<div class="puzzle-meta">
 			<span>{puzzle.name}</span>
 			<span>{dimension} × {dimension}</span>
+			<span class="puzzle-timer">Time: {formatElapsedTime(gameTimerElapsed)}</span>
 		</div>
 		<div class="column-hints" aria-hidden="true">
 			{#each columnHints as column, col}
