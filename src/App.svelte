@@ -41,13 +41,9 @@
 
 	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
 
-	const getCellErrorState = (row: number, col: number): CellError | null =>
-		mismatchMap?.[row]?.[col] ?? null
-
-	const cellClass = (row: number, col: number, state: CellState) => {
+	const cellClass = (row: number, col: number, state: CellState, error: CellError | null) => {
 		const focusClass = cursor.row === row && cursor.col === col ? 'focused' : ''
-		const error = getCellErrorState(row, col)
-		const errorClass = error ? `error error-${error}` : ''
+		const errorClass = error ? `error-${error}` : ''
 		return ['cell', state, focusClass, errorClass].filter(Boolean).join(' ')
 	}
 
@@ -146,6 +142,7 @@
 	let ensureUniqueness = true
 	let boardComplete = false
 	let hasErrors = false
+	let showMistakes = false
 	let mismatchMap: (CellError | null)[][] = createErrorMap(puzzle.size)
 	let workerPool: Worker[] = []
 	let workerPoolSize = 0
@@ -205,14 +202,18 @@
 		return runs.map((run) => isRunSatisfied(line, solutionLine, run))
 	})
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
-	$: mismatchMap = boardComplete
+	$: mismatchMap = boardComplete || showMistakes
 		? grid.map((row, rIdx) =>
 			row.map((cell, cIdx) => {
 				const shouldFill = solutionGrid[rIdx]?.[cIdx] ?? false
+				const isMarked = cell === 'filled' || cell === 'crossed'
+				if (!isMarked) {
+					return null
+				}
 				if (!shouldFill && cell === 'filled') {
 					return 'overfill'
 				}
-				if (shouldFill && cell !== 'filled') {
+				if (shouldFill && cell === 'crossed') {
 					return 'missing'
 				}
 				return null
@@ -588,6 +589,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		showMistakes = false
 		clearHistory()
 		startGameTimer()
 		void focusBoard()
@@ -730,6 +732,7 @@
 		cursor = { row: 0, col: 0 }
 		completionPopup = null
 		lastCompletionState = null
+		showMistakes = false
 		clearHistory()
 		startGameTimer()
 		void focusBoard()
@@ -765,6 +768,10 @@
 
 	const handleGenerateClick = async () => {
 		await buildPuzzleForSize(selectedSize)
+	}
+
+	const toggleMistakes = () => {
+		showMistakes = !showMistakes
 	}
 </script>
 
@@ -895,6 +902,9 @@
 		<div class="puzzle-meta">
 			<span>{puzzle.name}</span>
 			<span>{dimension} × {dimension}</span>
+			<button class="mistakes-toggle" type="button" on:click={toggleMistakes} aria-pressed={showMistakes}>
+				{showMistakes ? 'Hide mistakes' : 'Check mistakes'}
+			</button>
 			<span class="puzzle-timer">Time: {formatElapsedTime(gameTimerElapsed)}</span>
 		</div>
 		<div class="column-hints" aria-hidden="true">
@@ -930,9 +940,9 @@
 					{#each row as cell, colIdx}
 						<button
 							type="button"
-							class={cellClass(rowIdx, colIdx, cell)}
+							class={cellClass(rowIdx, colIdx, cell, mismatchMap?.[rowIdx]?.[colIdx] ?? null)}
 							data-state={cell}
-							data-error={getCellErrorState(rowIdx, colIdx) ?? undefined}
+							data-error={mismatchMap?.[rowIdx]?.[colIdx] ?? undefined}
 							aria-label={`Cell ${rowIdx + 1}, ${colIdx + 1}`}
 							aria-pressed={cell === 'filled'}
 							tabindex="-1"
