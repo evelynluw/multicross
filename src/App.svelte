@@ -10,8 +10,8 @@
 
 	const keyboardControls = [
 		{ label: 'Arrow Keys / WASD', description: 'Move the focused cell' },
-		{ label: 'Enter', description: 'Fill or unfill the focused cell' },
-		{ label: 'Space', description: 'Toggle a pencil mark' },
+		{ label: 'Enter or F', description: 'Fill or unfill the focused cell' },
+		{ label: 'Space or  \' ', description: 'Toggle a pencil mark' },
 		{ label: 'X or /', description: 'Add or remove a cross mark' },
 		{ label: 'Z', description: 'Undo last move' },
 		{ label: 'Shift + Z', description: 'Redo last move' }
@@ -537,7 +537,9 @@
 	}
 
 	const focusCell = (row: number, col: number) => {
-		cursor = { row: clamp(row), col: clamp(col) }
+		const nextRow = (row + dimension) % dimension
+		const nextCol = (col + dimension) % dimension
+		cursor = { row: nextRow, col: nextCol }
 	}
 
 	const handleKeydown = (event: KeyboardEvent) => {
@@ -561,13 +563,13 @@
 			return
 		}
 
-		if (event.key === 'Enter') {
+		if (event.key === 'Enter' || event.key.toLowerCase() === 'f') {
 			event.preventDefault()
 			toggleFill(cursor.row, cursor.col)
 			return
 		}
 
-		if (event.key === ' ' || event.key === 'Spacebar') {
+		if (event.key === ' ' || event.key === 'Spacebar' || event.key === "'") {
 			event.preventDefault()
 			togglePencil(cursor.row, cursor.col)
 			return

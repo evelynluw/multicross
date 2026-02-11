@@ -655,7 +655,7 @@ button:active {
 .cell.focused {
   outline: none;
   box-shadow: none;
-}
+  }
   
   .cell.error-overfill.focused,
   .cell.error-missing.focused {
