@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
 	import { defaultPuzzle, type Puzzle } from './lib/puzzle'
-	import { computeClueSatisfaction, type CellState, type ClueHintMode } from './lib/clueHinting'
+	import { computeClueSatisfaction, type ClueHintMode } from './lib/clueHinting'
+	import { CellState, cellStateToClass, coerceCellState } from './lib/cellState'
 	import {
 		createConsecutiveActionHandler,
 		getMoveDelta,
@@ -44,20 +45,20 @@
 	// ==================================================
 	// Create an empty grid at the requested size.
 	const createGrid = (size: number): CellState[][] =>
-		Array.from({ length: size }, () => Array<CellState>(size).fill('blank'))
+		Array.from({ length: size }, () => Array<CellState>(size).fill(CellState.Blank))
 
 	// Create a blank error map for the grid.
 	const createErrorMap = (size: number): (CellError | null)[][] =>
 		Array.from({ length: size }, () => Array<CellError | null>(size).fill(null))
 
 	// Check whether a cell is a finalized mark.
-	const isFinalizedCell = (cell: CellState) => cell === 'filled' || cell === 'crossed'
+	const isFinalizedCell = (cell: CellState) => cell === CellState.Filled || cell === CellState.Crossed
 
 	// Build the CSS class list for a cell.
 	const cellClass = (row: number, col: number, state: CellState, error: CellError | null) => {
 		const focusClass = cursor.row === row && cursor.col === col ? 'focused' : ''
 		const errorClass = error ? `error-${error}` : ''
-		return ['cell', state, focusClass, errorClass].filter(Boolean).join(' ')
+		return ['cell', cellStateToClass(state), focusClass, errorClass].filter(Boolean).join(' ')
 	}
 
 	// Generate the separator indices for a given grid size.
@@ -136,23 +137,23 @@
 	})
 	$: boardComplete = grid.every((row) => row.every(isFinalizedCell))
 	$: hasIncorrectFill = grid.some((row, rIdx) =>
-		row.some((cell, cIdx) => cell === 'filled' && !solutionGrid[rIdx]?.[cIdx])
+		row.some((cell, cIdx) => cell === CellState.Filled && !solutionGrid[rIdx]?.[cIdx])
 	)
 	$: hasMissingFill = solutionGrid.some((row, rIdx) =>
-		row.some((shouldFill, cIdx) => shouldFill && grid[rIdx]?.[cIdx] !== 'filled')
+		row.some((shouldFill, cIdx) => shouldFill && grid[rIdx]?.[cIdx] !== CellState.Filled)
 	)
 	$: mismatchMap = boardComplete || showMistakes
 		? grid.map((row, rIdx) =>
 			row.map((cell, cIdx) => {
 				const shouldFill = solutionGrid[rIdx]?.[cIdx] ?? false
-				const isMarked = cell === 'filled' || cell === 'crossed'
+				const isMarked = cell === CellState.Filled || cell === CellState.Crossed
 				if (!isMarked) {
 					return null
 				}
-				if (!shouldFill && cell === 'filled') {
+				if (!shouldFill && cell === CellState.Filled) {
 					return 'overfill'
 				}
-				if (shouldFill && cell === 'crossed') {
+				if (shouldFill && cell === CellState.Crossed) {
 					return 'missing'
 				}
 				return null
@@ -302,17 +303,27 @@
 		)
 	}
 
-	// Validate a saved grid payload for a puzzle size.
-	const isValidGrid = (value: unknown, size: number): value is CellState[][] => {
+	// Normalize a saved grid payload into the compact numeric format.
+	const normalizeGrid = (value: unknown, size: number): CellState[][] | null => {
 		if (!Array.isArray(value) || value.length !== size) {
-			return false
+			return null
 		}
-		return value.every(
-			(row) =>
-				Array.isArray(row) &&
-				row.length === size &&
-				row.every((cell) => ['blank', 'filled', 'pencil', 'crossed'].includes(cell as string))
-		)
+		const nextGrid: CellState[][] = []
+		for (const row of value) {
+			if (!Array.isArray(row) || row.length !== size) {
+				return null
+			}
+			const nextRow: CellState[] = []
+			for (const cell of row) {
+				const normalized = coerceCellState(cell)
+				if (normalized === null) {
+					return null
+				}
+				nextRow.push(normalized)
+			}
+			nextGrid.push(nextRow)
+		}
+		return nextGrid
 	}
 
 	// Toggle the active theme.
@@ -386,17 +397,17 @@
 
 	// Toggle a fill mark at the cell.
 	const toggleFill = (row: number, col: number) => {
-		mutateCell(row, col, (current) => (current === 'filled' ? 'blank' : 'filled'))
+		mutateCell(row, col, (current) => (current === CellState.Filled ? CellState.Blank : CellState.Filled))
 	}
 
 	// Toggle a pencil mark at the cell.
 	const togglePencil = (row: number, col: number) => {
-		mutateCell(row, col, (current) => (current === 'pencil' ? 'blank' : 'pencil'))
+		mutateCell(row, col, (current) => (current === CellState.Pencil ? CellState.Blank : CellState.Pencil))
 	}
 
 	// Toggle a cross mark at the cell.
 	const toggleCross = (row: number, col: number) => {
-		mutateCell(row, col, (current) => (current === 'crossed' ? 'blank' : 'crossed'))
+		mutateCell(row, col, (current) => (current === CellState.Crossed ? CellState.Blank : CellState.Crossed))
 	}
 
 	// ==================================================
@@ -492,8 +503,9 @@
 					puzzle = parsedPuzzle
 					lastPuzzle = parsedPuzzle
 					selectedSize = parsedPuzzle.size
-					if (isValidGrid(parsedGrid, parsedPuzzle.size)) {
-						grid = parsedGrid
+					const normalizedGrid = normalizeGrid(parsedGrid, parsedPuzzle.size)
+					if (normalizedGrid) {
+						grid = normalizedGrid
 					} else {
 						grid = createGrid(parsedPuzzle.size)
 					}

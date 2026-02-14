@@ -1,5 +1,5 @@
 <script lang="ts">
-	type CellState = 'blank' | 'filled' | 'pencil' | 'crossed'
+	import { CellState, cellStateToClass, isFilledState } from '../cellState'
 	type CellError = 'missing' | 'overfill'
 
 	export let puzzleName: string
@@ -80,10 +80,10 @@
 					<button
 						type="button"
 						class={cellClass(rowIdx, colIdx, cell, mismatchMap?.[rowIdx]?.[colIdx] ?? null)}
-						data-state={cell}
+						data-state={cellStateToClass(cell)}
 						data-error={mismatchMap?.[rowIdx]?.[colIdx] ?? undefined}
 						aria-label={`Cell ${rowIdx + 1}, ${colIdx + 1}`}
-						aria-pressed={cell === 'filled'}
+						aria-pressed={isFilledState(cell)}
 						tabindex="-1"
 						id={`cell-${rowIdx}-${colIdx}`}
 						on:click={(event) => onCellClick(event, rowIdx, colIdx)}
